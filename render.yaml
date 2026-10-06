@@ -1,0 +1,12 @@
+# Repository root must be the lucycam-web directory (package.json at root).
+services:
+  - type: web
+    name: lucycam
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run check && npm test
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_ENV
+        value: production

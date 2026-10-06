@@ -1,1 +1,13 @@
-{"name":"lucycam-web","private":true,"version":"0.1.0","type":"module","scripts":{"dev":"node serve.mjs","check":"node --check dist/app.js && node --check dist/photo-utils.js","test":"node --test tests/photo-utils.test.mjs"}}
+{
+  "name": "lucycam-web",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "engines": {"node": ">=24 <25"},
+  "scripts": {
+    "dev": "node serve.mjs",
+    "start": "node server.mjs",
+    "check": "node --check server.mjs && node --check serve.mjs && node --check dist/app.js && node --check dist/photo-utils.js",
+    "test": "node --test tests/*.test.mjs"
+  }
+}
