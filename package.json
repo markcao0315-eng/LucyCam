@@ -1,0 +1,1 @@
+{"name":"lucycam-web","private":true,"version":"0.1.0","type":"module","scripts":{"dev":"node serve.mjs","check":"node --check dist/app.js && node --check dist/photo-utils.js","test":"node --test tests/photo-utils.test.mjs"}}
