@@ -2,6 +2,7 @@ import {setupGuide} from './guide-ui.js';
 import {setupAI} from './ai-ui.js';
 import {filters,cropRect,outputSize,cssFilter,applyPixels} from './photo-utils.js';
 const $=id=>document.getElementById(id);
+$('appVersion').textContent='v0.6.1';
 const video=$('video');
 let guide=null;
 const state={stream:null,facing:'environment',mirrored:false,ratio:0,timer:0,filter:'original',strength:70,scene:'portrait',grid:true,busy:false,opening:false,request:0,countToken:0,photo:null};

@@ -52,7 +52,7 @@ export function createAppServer(options = {}) {
     if (pathname === '/api/status') {
       return json(res, 200, {
         app: 'LucyCam',
-        version: '0.6.0',
+        version: '0.6.1',
         aiRulesVersion: promptVersion,
         features: {camera: true, aiComposition: ai.ready, liveTracking: (options.env||process.env).LIVE_GUIDANCE_ENABLED==='true'},
         authenticated: ai.ready && ai.authenticated(req),

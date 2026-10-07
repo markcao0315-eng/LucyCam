@@ -24,20 +24,14 @@ export function nextVideoFrame(video,signal){
     const abort=()=>{clean();reject(new DOMException('拍摄已取消','AbortError'));};
     const tick=(_,meta)=>{if(signal?.aborted)return abort();if(video.paused)return abort();if((meta?.mediaTime??video.currentTime)!==media){clean();resolve();}else schedule();};
     const schedule=()=>{id=video.requestVideoFrameCallback?video.requestVideoFrameCallback(tick):requestAnimationFrame(tick);};
-    if(signal?.aborted)return abort();signal?.addEventListener('abort',abort,{once:true});timer=setTimeout(abort,250);schedule();
+    if(signal?.aborted)return abort();signal?.addEventListener('abort',abort,{once:true});timer=setTimeout(abort,600);schedule();
   });
 }
-export async function captureBurst(video,config,signal,valid){
-  let best=null,bestScore=-Infinity,mean=null;
-  try{
-    for(let i=0;i<3;i++){
-      if(i)await new Promise((resolve,reject)=>{const done=()=>{signal.removeEventListener('abort',abort);resolve();},timer=setTimeout(done,85),abort=()=>{clearTimeout(timer);reject(new DOMException('取消','AbortError'));};signal.addEventListener('abort',abort,{once:true});});
-      await nextVideoFrame(video,signal);
-      if(!valid()||signal.aborted||video.videoWidth!==config.sourceWidth||video.videoHeight!==config.sourceHeight)throw new Error('画面已改变，本轮已取消。');
-      const canvas=drawCapture(video,document.createElement('canvas'),config,{filtered:false}),quality=clarity(canvas);
-      if(mean!==null&&Math.abs(quality.mean-mean)>15){canvas.width=canvas.height=1;throw new Error('曝光变化过大，请重新拍摄。');}mean=quality.mean;
-      if(quality.score>bestScore){if(best)best.width=best.height=1;best=canvas;bestScore=quality.score;}else canvas.width=canvas.height=1;
-    }
-    return best;
-  }catch(error){if(best)best.width=best.height=1;throw error;}
+export async function captureCurrentFrame(video,config,signal,valid,freeze){
+  await nextVideoFrame(video,signal);
+  if(!valid()||signal.aborted||video.readyState<2||video.videoWidth!==config.sourceWidth||video.videoHeight!==config.sourceHeight)throw new Error('画面已改变，本轮已取消。');
+  const canvas=drawCapture(video,document.createElement('canvas'),config,{filtered:false});
+  // No async boundary between the freshness check, pixel copy and freeze.
+  if(!freeze()){canvas.width=canvas.height=1;throw new DOMException('拍摄已取消','AbortError');}
+  return canvas;
 }

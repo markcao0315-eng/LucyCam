@@ -65,9 +65,9 @@ test('cancelled plan, stale Worker and capture completion cannot affect the next
 test('paused, duplicate, stale, lost or moving subject frames cannot accumulate stability',async()=>{
   for(const failure of ['paused','duplicate','stale','invalid','subject','motion','expired']){
     const r=rig();r.frame();r.accept();for(let i=0;i<4;i++)r.frame();
-    if(failure==='paused')r.advance(301);
-    if(failure==='duplicate'){for(let i=0;i<10;i++)r.frame({frameId:1});r.advance(301);}
-    if(failure==='stale'){r.frame({time:-500});r.advance(301);}
+    if(failure==='paused')r.advance(2501);
+    if(failure==='duplicate'){for(let i=0;i<10;i++)r.frame({frameId:1});r.advance(2501);}
+    if(failure==='stale'){r.frame({time:-500});r.advance(2501);}
     if(failure==='invalid')r.frame({valid:false});
     if(failure==='subject')for(let i=0;i<8;i++)r.frame({subjectSafe:false});
     if(failure==='motion')for(let i=0;i<30;i++)r.frame({velocity:.6});
@@ -79,6 +79,27 @@ test('paused, duplicate, stale, lost or moving subject frames cannot accumulate 
 test('movement after zoom unlocks the crop; cancellation before capture microtask prevents capture',async()=>{
   const r=rig();r.frame();r.accept();while(r.c.state!=='ZOOMING')r.frame();assert.equal(r.c.state,'ZOOMING');r.frame({velocity:.6});assert.equal(r.c.state,'GUIDING');assert.equal(r.c.config,null);
   for(let i=0;i<25&&r.c.state!=='CAPTURING';i++)r.frame();assert.equal(r.c.state,'CAPTURING');r.c.cancel();await Promise.resolve();assert.equal(r.captures(),0);
+});
+
+test('brief pipeline stall clears alignment then resumes same plan without a second click',async()=>{
+  const r=rig();r.frame();r.accept();for(let i=0;i<4;i++)r.frame();const id=r.c.runId;
+  r.advance(800);assert.equal(r.c.state,'WAITING');assert.equal(r.c.stableSince,null);assert.equal(r.c.target,null);assert.equal(r.captures(),0);
+  r.frame();assert.equal(r.c.state,'GUIDING');assert.equal(r.c.runId,id);
+  for(let i=0;i<25;i++)r.frame();await Promise.resolve();assert.equal(r.captures(),1);r.c.cancel();r.release();
+});
+
+test('slow Worker frames remain usable but old and duplicate packets cannot advance stability',()=>{
+  const r=rig();r.frame();r.accept();r.frame({time:0},700);assert.equal(r.c.latest.frameId,1);
+  r.frame({time:500},100);assert.equal(r.c.latest.frameId,3);assert.notEqual(r.c.state,'CAPTURING');
+});
+
+test('frozen photo export outlives camera and reference timers; cancellation still wins',async()=>{
+  for(const cancel of [false,true]){
+    const r=rig();r.frame();r.accept();while(r.c.state!=='CAPTURING')r.frame();await Promise.resolve();
+    const id=r.c.runId;assert.ok(r.c.freezeCapture(id));r.advance(30000);r.frame({valid:false});assert.equal(r.c.state,'EXPORTING');
+    if(cancel){r.c.cancel();r.start();assert.equal(r.c.freezeCapture(id),false);}
+    r.release();await new Promise(r=>setImmediate(r));assert.equal(r.c.state,cancel?'ANALYZING':'REVIEW');
+  }
 });
 
 test('small hand shake inside visible circle permits one capture; outer edge never aligns',async()=>{

@@ -2,6 +2,7 @@ import {compositionStep} from './guide-coach.js';
 import {cropRect} from './photo-utils.js';
 import {validateGuidePlan} from './guide-plan.js';
 import {point,alignmentDistance,lockCrop,fullTransform,boxCorners,GUIDE_TUNING,previewCrop,guidanceTarget} from './guide-geometry.js';
+const FRAME_FRESH_MS=600,STALL_MS=2500;
 
 export class GuideController {
   constructor({now=()=>performance.now(),change=()=>{},capture=async()=>{},stop=()=>{}}={}){
@@ -16,10 +17,14 @@ export class GuideController {
   active(id=this.runId){return id===this.runId&&!this.abort?.signal.aborted&&!['IDLE','LOST','REVIEW'].includes(this.state);}
   lose(message){if(!this.active())return;this.abort.abort();this.stop();this.config=null;this.coaching=null;this.target=null;this.emit('LOST',message);}
   tick(){
-    if(!this.active())return;
+    if(!this.active()||this.state==='EXPORTING')return;
     if(this.now()-this.started>20000)this.lose('请先让主体完整进入画面并留出边缘，再点「按当前画面继续」更新构图（本轮参考已过期）。');
     else if(this.recoverySince!==null&&this.now()-this.recoverySince>2500)this.lose('请缓慢转回刚才的方向，让主体完整进入画面；停稳后点「按当前画面继续」确认新位置。');
-    else if(this.now()-(this.receivedTime??this.latest?.time??this.started)>300)this.lose('画面已停顿：请回到相机页面，确认预览恢复后点「按当前画面继续」。');
+    else if(this.now()-(this.receivedTime??this.latest?.time??this.started)>STALL_MS)this.lose('相机持续没有送来新画面，请重新开启相机后再点「AI 帮我拍」。');
+    else if(this.now()-(this.receivedTime??this.latest?.time??this.started)>FRAME_FRESH_MS&&this.plan&&this.state!=='CAPTURING'){
+      this.config=null;this.target=null;this.coaching=null;this.stableSince=null;
+      this.emit('WAITING','正在等相机更新画面，恢复后会自动继续，请保持当前方向。');
+    }
   }
   accept(id,data){
     if(!this.active(id))return false;this.tick();if(!this.active(id))return false;
@@ -30,7 +35,7 @@ export class GuideController {
     this.emit(this.coaching?.required?'CORRECTING':'GUIDING',this.coaching?.message||'轻转手机，让目标圈靠近中心准星。');return true;
   }
   frame(frame){
-    if(!this.active(frame.runId)||!Number.isFinite(frame.time)||this.now()-frame.time>250||frame.time>this.now()+1)return;
+    if(!this.active(frame.runId)||this.state==='EXPORTING'||!Number.isFinite(frame.time)||this.now()-frame.time>FRAME_FRESH_MS||frame.time>this.now()+1)return;
     if(this.latest&&(frame.frameId<=this.latest.frameId||frame.mediaTime<=this.latest.mediaTime))return;
     this.receivedTime=frame.time;
     if(!frame.valid){
@@ -57,7 +62,7 @@ export class GuideController {
     this.target=guidanceTarget(this.base,this.plan,this.transform);
     this.updateCoaching();
     const distance=alignmentDistance(this.target,this.currentCrop(frame.time)),still=frame.velocity<GUIDE_TUNING.maxVelocity;
-    const continuous=previous&&frame.time-previous.time<=250;
+    const continuous=previous&&frame.time-previous.time<=FRAME_FRESH_MS;
     const clipped=this.config&&!this.subjectFits();
     if(this.state==='CAPTURING'){
       if(!still||!continuous||clipped||distance>GUIDE_TUNING.radius)this.lose('拍摄时画面移动，本轮已取消。');return;
@@ -98,11 +103,17 @@ export class GuideController {
     const {sx,sy,sw,sh}=this.config.crop;
     return boxCorners(this.base,this.plan.subject.box).map(p=>point(this.transform,p)).every(p=>p.x>=sx-1e-5&&p.x<=sx+sw+1e-5&&p.y>=sy-1e-5&&p.y<=sy+sh+1e-5);
   }
-  canCapture(id){return this.active(id)&&this.state==='CAPTURING'&&this.now()-this.latest.time<=250&&this.latest.subjectSafe&&this.latest.velocity<GUIDE_TUNING.maxVelocity&&alignmentDistance(this.target,this.currentCrop())<=GUIDE_TUNING.radius&&this.subjectFits();}
+  canCapture(id){return this.active(id)&&this.state==='CAPTURING'&&this.now()-this.latest.time<=FRAME_FRESH_MS&&this.latest.subjectSafe&&this.latest.velocity<GUIDE_TUNING.maxVelocity&&alignmentDistance(this.target,this.currentCrop())<=GUIDE_TUNING.radius&&this.subjectFits();}
+  // Called synchronously after copying the fresh video frame. Export validity is
+  // now about cancellation/run identity, never the age of the live camera frame.
+  freezeCapture(id){
+    if(!this.active(id)||this.state!=='CAPTURING')return false;
+    this.stop();this.target=null;this.emit('EXPORTING','已拍下，正在处理照片…');return true;
+  }
   commit(){
-    if(this.captureCommitted||!this.active()||this.now()-this.latest.time>250)return;
-    this.captureCommitted=true;const id=this.runId,config=this.config;this.emit('CAPTURING','正在选取清晰的一帧…');
-    Promise.resolve().then(()=>{if(this.canCapture(id))return this.capture(config,this.abort.signal,()=>this.canCapture(id));throw new Error('本轮拍摄已取消。');})
+    if(this.captureCommitted||!this.active()||this.now()-this.latest.time>FRAME_FRESH_MS)return;
+    this.captureCommitted=true;const id=this.runId,config=this.config;this.emit('CAPTURING','正在拍摄…');
+    Promise.resolve().then(()=>{if(this.canCapture(id))return this.capture(config,this.abort.signal,()=>this.active(id)&&(this.state==='EXPORTING'||this.canCapture(id)),()=>this.freezeCapture(id));throw new Error('本轮拍摄已取消。');})
       .then(()=>{if(!this.active(id))return;this.stop();this.emit('REVIEW','拍摄完成，请保存到相册。');})
       .catch(error=>{if(this.active(id))this.lose(error.message||'请保持主体在画面内并停稳，再点「按当前画面继续」完成拍摄。');});
   }

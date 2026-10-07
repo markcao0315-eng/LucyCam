@@ -17,6 +17,43 @@ async function open(page,app){await installCamera(page);await page.goto(app.url)
 async function unlock(page){await page.locator('#guideButton').click();await expect(page.locator('#accessDialog')).toBeVisible();await page.locator('#accessCode').fill('wrong');await page.locator('#unlockAI').click();await expect(page.locator('#accessStatus')).toContainText('不正确');await page.locator('#accessCode').fill('browser-test-code');await page.locator('#unlockAI').click();await expect(page.locator('#accessDialog')).not.toBeVisible();}
 async function state(page,value){await expect(page.locator('#liveSection')).toHaveAttribute('data-state',value,{timeout:12000});}
 
+test('5MP automatic photo survives slow filtering and JPEG export without a second click',async({page,app})=>{
+  app.plan.crop.scale=1;app.plan.framing={subjectX:.5,subjectY:.5};
+  await installCamera(page,{width:1920,height:2560});await page.goto(app.url);await page.locator('#startButton').click();await page.locator('[data-scene=landscape]').click();await unlock(page);
+  await page.evaluate(()=>{
+    window.photoChanges=0;new MutationObserver(()=>window.photoChanges++).observe(document.getElementById('photoPreview'),{attributes:true,attributeFilter:['src']});
+    const original=HTMLCanvasElement.prototype.toBlob;
+    HTMLCanvasElement.prototype.toBlob=function(callback,...args){
+      if(this.width*this.height>4000000){const end=performance.now()+700;while(performance.now()<end){};return original.call(this,blob=>setTimeout(()=>callback(blob),1200),...args);}
+      return original.call(this,callback,...args);
+    };
+  });
+  await page.locator('#guideButton').click();await state(page,'REVIEW');await expect(page.locator('#photoDialog')).toBeVisible();
+  await expect(page.locator('#photoMeta')).toContainText('1920 × 2560');
+  expect(await page.locator('#photoPreview').evaluate(async img=>{await img.decode();const c=document.createElement('canvas');c.width=c.height=1;const ctx=c.getContext('2d');ctx.drawImage(img,0,0,1,1);const p=ctx.getImageData(0,0,1,1).data;return Math.abs(p[0]-p[1]);})).toBeLessThan(4);
+  expect(app.calls).toBe(1);expect(await page.evaluate(()=>window.photoChanges)).toBe(1);
+});
+
+for(const action of ['cancel','background'])test(`${action} during delayed JPEG export prevents late photo publication`,async({page,app})=>{
+  await open(page,app);await unlock(page);
+  await page.evaluate(()=>{
+    const original=HTMLCanvasElement.prototype.toBlob;window.exportPending=false;
+    HTMLCanvasElement.prototype.toBlob=function(callback,...args){window.exportPending=true;return original.call(this,blob=>setTimeout(()=>callback(blob),1600),...args);};
+  });
+  await page.locator('#guideButton').click();await expect.poll(()=>page.evaluate(()=>window.exportPending)).toBe(true);await state(page,'EXPORTING');
+  if(action==='cancel')await page.locator('#cancelInView').click();
+  else await page.evaluate(()=>{Object.defineProperty(document,'hidden',{configurable:true,get:()=>true});document.dispatchEvent(new Event('visibilitychange'));});
+  await state(page,'IDLE');await page.waitForTimeout(1900);await expect(page.locator('#photoDialog')).not.toBeVisible();await expect(page.locator('#lastPhoto')).toBeDisabled();expect(app.calls).toBe(1);
+});
+
+test('brief camera stall resumes automatically and captures with the original AI request',async({page,app})=>{
+  app.plan.crop.centerX=.6;await open(page,app);await unlock(page);await page.locator('#guideButton').click();await state(page,'GUIDING');
+  await page.evaluate(()=>{window.cameraFixture.freeze=true;});await state(page,'WAITING');await expect(page.locator('#photoDialog')).not.toBeVisible();
+  await page.evaluate(()=>{window.cameraFixture.freeze=false;});await state(page,'GUIDING');
+  await page.evaluate(async()=>{for(let i=0;i<12;i++){window.cameraFixture.x-=12;await new Promise(r=>setTimeout(r,80));}});
+  await state(page,'REVIEW');await expect(page.locator('#photoDialog')).toBeVisible();expect(app.calls).toBe(1);
+});
+
 test('one click runs real Worker tracking, digital crop, filter, one photo and download; original preserves crop',async({page,app})=>{
   const errors=[];page.on('pageerror',e=>errors.push(e.message));await open(page,app);await unlock(page);expect(app.calls).toBe(0);await state(page,'IDLE');
   await page.evaluate(()=>{window.photoChanges=0;new MutationObserver(()=>window.photoChanges++).observe(document.getElementById('photoPreview'),{attributes:true,attributeFilter:['src']});});
@@ -65,7 +102,7 @@ test('safe provider error offers retry and keeps normal camera',async({page,app}
 
 test('configuration refresh and legacy single-frame crop remain available with manual rules',async({page,app})=>{
   await installCamera(page);await page.route('**/api/status',route=>route.fulfill({json:{features:{aiComposition:false,liveTracking:false},configuration:{issues:[{message:'家庭访问口令不足 12 位。'}]}}}));await page.goto(app.url);
-  await expect(page.locator('#aiStatus')).toContainText('不足 12 位');await page.unroute('**/api/status');await page.locator('#refreshAI').click();await page.locator('#startButton').click();await unlock(page);
+  await expect(page.locator('#aiStatus')).toContainText('不足 12 位');await page.unroute('**/api/status');await page.locator('#refreshAI').click();await page.locator('#startButton').click();await page.locator('[data-scene=landscape]').click();await unlock(page);
   await page.locator('#aiButton').click();await expect(page.locator('#aiResultDialog')).toBeVisible();await expect(page.locator('#aiAdvice')).toContainText('保留完整主体');expect(app.calls).toBe(1);
   await page.locator('#saveAICrop').click();await expect(page.locator('#photoDialog')).toBeVisible();await expect(page.locator('#photoMeta')).toContainText('1152 × 1536');
 });

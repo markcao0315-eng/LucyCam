@@ -1,7 +1,7 @@
 import {MotionSensor} from './motion-sensor.js';
 import {GuideController} from './guide-controller.js';
 import {TrackingClient} from './tracking-client.js';
-import {drawCapture,captureBurst} from './camera-renderer.js';
+import {drawCapture,captureCurrentFrame} from './camera-renderer.js';
 import {displayPoint,referencePoint,GUIDE_TUNING} from './guide-geometry.js';
 import {filters} from './photo-utils.js';
 const $=id=>document.getElementById(id);
@@ -10,8 +10,8 @@ export function setupGuide({video,getCamera,ai,makePhoto,cancelCountdown}){
   let tracker=null,starting=false,epoch=0,watchdog=null,animation=null,raw=null,reviewConfig=null,lastDraw=0;
   const canvas=$('guidePreview'),motion=new MotionSensor();
   function stop(){motion.stop();tracker?.stop();tracker=null;clearInterval(watchdog);cancelAnimationFrame(animation);canvas.hidden=true;}
-  const controller=new GuideController({stop,change:render,capture:async(config,signal,valid)=>{
-    const frame=await captureBurst(video,config,signal,valid);
+  const controller=new GuideController({stop,change:render,capture:async(config,signal,valid,freeze)=>{
+    const frame=await captureCurrentFrame(video,config,signal,valid,freeze);
     try{
       if(!valid()||signal.aborted)throw new Error('本轮已取消。');
       await makePhoto(frame,frame.width,frame.height,{crop:false,kind:'AI 引导',filter:config.filter,valid:()=>valid()&&!signal.aborted});
@@ -70,8 +70,8 @@ export function setupGuide({video,getCamera,ai,makePhoto,cancelCountdown}){
     overlay();update();
   }
   function animate(){
-    if(!controller.active())return;
-    if(controller.config&&performance.now()-lastDraw>=40&&video.readyState>=2){drawCapture(video,canvas,previewConfig(),{maxEdge:640});canvas.hidden=false;lastDraw=performance.now();}
+    if(!controller.active()||controller.state==='EXPORTING')return;
+    if(controller.config&&performance.now()-lastDraw>=100&&video.readyState>=2){drawCapture(video,canvas,previewConfig(),{maxEdge:360});canvas.hidden=false;lastDraw=performance.now();}
     overlay();animation=requestAnimationFrame(animate);
   }
   function cancel(){epoch++;starting=false;controller.cancel();update();}
