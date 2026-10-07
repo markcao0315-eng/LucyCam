@@ -1,0 +1,2 @@
+# Preserve the exact upstream runtime bytes and SHA-256 on all platforms.
+dist/vendor/opencv-4.13.0.js -text -diff

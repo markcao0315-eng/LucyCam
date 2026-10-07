@@ -1,14 +1,16 @@
+import {setupGuide} from './guide-ui.js';
 import {setupAI} from './ai-ui.js';
 import {filters,cropRect,outputSize,cssFilter,applyPixels} from './photo-utils.js';
 const $=id=>document.getElementById(id);
 const video=$('video');
+let guide=null;
 const state={stream:null,facing:'environment',mirrored:false,ratio:0,timer:0,filter:'original',strength:70,scene:'portrait',grid:true,busy:false,opening:false,request:0,countToken:0,photo:null};
 const ratios=[{label:'3:4',value:3/4},{label:'1:1',value:1},{label:'9:16',value:9/16}];
 const tips={portrait:'让眼睛靠近上方网格线，头顶留一点空间。',travel:'人物放在右侧参考框，左边留给风景；尽量不要切到脚。',landscape:'让地平线靠近下方网格线；天空不出彩时，也可以放在上方。'};
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 function tell(message){$('status').textContent=message;}
-function updateControls(){const ready=!!state.stream&&video.readyState>=2&&!state.busy&&!state.opening;$('shutter').disabled=!ready;$('flipButton').disabled=!ready;$('importButton').disabled=state.busy||state.opening;$('importStartButton').disabled=state.busy||state.opening;$('startButton').disabled=state.opening||state.busy;$('ratioButton').disabled=state.busy;$('timerButton').disabled=state.busy;ai.update();}
-function releaseStream(){if(state.stream){state.stream.getTracks().forEach(t=>t.stop());state.stream=null;}video.srcObject=null;video.classList.remove('mirrored');$('frameGuide').hidden=true;$('frameLabel').hidden=true;$('resolution').textContent='';updateControls();}
+function updateControls(){const ready=!!state.stream&&video.readyState>=2&&!state.busy&&!state.opening;$('shutter').disabled=!ready;$('flipButton').disabled=!ready;$('importButton').disabled=state.busy||state.opening;$('importStartButton').disabled=state.busy||state.opening;$('startButton').disabled=state.opening||state.busy;$('ratioButton').disabled=state.busy;$('timerButton').disabled=state.busy;ai.update();guide?.update();}
+function releaseStream(){guide?.cancel();if(state.stream){state.stream.getTracks().forEach(t=>t.stop());state.stream=null;}video.srcObject=null;video.classList.remove('mirrored');$('frameGuide').hidden=true;$('frameLabel').hidden=true;$('resolution').textContent='';updateControls();}
 function cancelCountdown(){state.countToken++;$('countdown').hidden=true;}
 function showStart(message='点击继续使用相机。'){$('startPanel').hidden=false;$('startMessage').textContent=message;$('cameraStatus').textContent='相机未开启';$('startButton').textContent='开启相机';}
 async function startCamera(){
@@ -37,32 +39,37 @@ function updateGuide(){
   $('frameGuide').className=`frame-guide ${state.scene}`;$('guideText').textContent=tips[state.scene];
   $('sceneTabs').querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.scene===state.scene)));
 }
-function setFilter(id){if(!filters.some(f=>f.id===id))throw new Error('不存在的滤镜');state.filter=id;updateFilter();}
+function setFilter(id){guide?.cancel();if(!filters.some(f=>f.id===id))throw new Error('不存在的滤镜');state.filter=id;updateFilter();}
 function updateFilter(){video.style.filter=cssFilter(state.filter,state.strength);$('filterName').textContent=filters.find(f=>f.id===state.filter).name;$('strength').disabled=state.filter==='original';$('filterList').querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.filter===state.filter)));$('strengthValue').textContent=state.strength+'%';}
 for(const f of filters){const b=document.createElement('button');b.dataset.filter=f.id;b.setAttribute('aria-label',f.name+'滤镜');b.setAttribute('aria-pressed',String(f.id===state.filter));const swatch=document.createElement('span');swatch.className='filter-swatch';swatch.style.filter=cssFilter(f.id,100);swatch.setAttribute('aria-hidden','true');b.append(swatch,document.createTextNode(f.name));b.onclick=()=>setFilter(f.id);$('filterList').append(b);}
-async function makePhoto(source,width,height,{crop=true,mirrored=false,kind='拍摄'}={}){
-  const rect=crop?cropRect(width,height,ratios[state.ratio].value):{sx:0,sy:0,sw:width,sh:height};
+async function makePhoto(source,width,height,{crop=true,mirrored=false,kind='拍摄',filter={id:state.filter,strength:state.strength},rect:explicitRect=null,valid=()=>true}={}){
+  const filterId=filter.id,strength=filter.strength;
+  const rect=explicitRect||(crop?cropRect(width,height,ratios[state.ratio].value):{sx:0,sy:0,sw:width,sh:height});
   const size=outputSize(rect.sw,rect.sh);const canvas=document.createElement('canvas');canvas.width=size.width;canvas.height=size.height;
-  const context=canvas.getContext('2d',{willReadFrequently:state.filter!=='original'});if(!context)throw new Error('无法处理照片，请关闭其他网页后重试。');
+  const context=canvas.getContext('2d',{willReadFrequently:filterId!=='original'});if(!context)throw new Error('无法处理照片，请关闭其他网页后重试。');
   context.fillStyle='#fff';context.fillRect(0,0,canvas.width,canvas.height);if(mirrored){context.translate(canvas.width,0);context.scale(-1,1);}context.drawImage(source,rect.sx,rect.sy,rect.sw,rect.sh,0,0,canvas.width,canvas.height);context.setTransform(1,0,0,1,0,0);
-  const filterId=state.filter,strength=state.strength;
+
   if(filterId!=='original'&&strength>0){await delay(20);const pixels=context.getImageData(0,0,canvas.width,canvas.height);applyPixels(pixels.data,filterId,strength);context.putImageData(pixels,0,0);}
   const blob=await new Promise((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(new Error('照片导出失败，请重试。')),'image/jpeg',.95));canvas.width=1;canvas.height=1;
   const name=`LucyCam-${new Date().toISOString().replace(/[:.]/g,'-')}.jpg`;
+  if(!valid())throw new Error('拍摄已取消。');
+  if(kind!=='AI 引导')guide?.clearReview();
   const url=URL.createObjectURL(blob);const previous=state.photo;
   state.photo={blob,url,file:new File([blob],name,{type:'image/jpeg'}),width:size.width,height:size.height,name,kind,filter:filters.find(f=>f.id===filterId).name};
   $('photoPreview').src=url;$('lastThumbnail').replaceChildren(Object.assign(document.createElement('img'),{src:url,alt:''}));$('lastPhoto').disabled=false;
-  if(previous)URL.revokeObjectURL(previous.url);showPhoto();
+  if(previous)URL.revokeObjectURL(previous.url);showPhoto(true);
 }
-function showPhoto(){if(!state.photo)return;const p=state.photo;$('photoMeta').textContent=`${p.width} × ${p.height} · ${p.filter} · ${(p.blob.size/1024/1024).toFixed(1)} MB`;$('saveStatus').textContent='尚未保存到相册，请使用下方按钮或长按照片。';const canShare=!!navigator.share&&!!navigator.canShare?.({files:[p.file]});$('shareButton').hidden=!canShare;$('downloadButton').textContent=canShare?'下载图片':'下载图片 / 保存备用';if(!$('photoDialog').open)$('photoDialog').showModal();video.pause();}
+function showPhoto(fromCapture=false){if(!fromCapture)guide?.cancel();if(!state.photo)return;const p=state.photo;$('photoMeta').textContent=`${p.width} × ${p.height} · ${p.filter} · ${(p.blob.size/1024/1024).toFixed(1)} MB`;$('saveStatus').textContent='尚未保存到相册，请使用下方按钮或长按照片。';const canShare=!!navigator.share&&!!navigator.canShare?.({files:[p.file]});$('shareButton').hidden=!canShare;$('downloadButton').textContent=canShare?'下载图片':'下载图片 / 保存备用';if(!$('photoDialog').open)$('photoDialog').showModal();video.pause();}
 async function capture(){
+  const guided=guide?.active(),config=guide?.currentConfig();guide?.cancel();
   if(state.busy||!state.stream||video.readyState<2)return;
   state.busy=true;updateControls();const token=++state.countToken;
-  try{for(let n=state.timer;n>0;n--){$('countdown').hidden=false;$('countdown').textContent=n;await delay(1000);if(token!==state.countToken||!state.stream)return;}$('countdown').hidden=true;
-    if(document.hidden)return;tell('正在处理照片…');await makePhoto(video,video.videoWidth,video.videoHeight,{mirrored:state.mirrored});tell('拍摄完成，请在预览里保存。');
+  try{for(let n=guided?0:state.timer;n>0;n--){$('countdown').hidden=false;$('countdown').textContent=n;await delay(1000);if(token!==state.countToken||!state.stream)return;}$('countdown').hidden=true;
+    if(document.hidden)return;tell('正在处理照片…');await makePhoto(video,video.videoWidth,video.videoHeight,{mirrored:state.mirrored,rect:config?.crop,filter:config?.filter,valid:()=>token===state.countToken&&!document.hidden});tell('拍摄完成，请在预览里保存。');
   }catch(error){tell(error.message||'拍照失败，请重试。');}finally{$('countdown').hidden=true;state.busy=false;updateControls();}
 }
 async function importPhoto(file){
+  guide?.cancel();
   if(!file||state.busy)return;if(file.size>40*1024*1024){tell('这张照片过大，请选择小于 40 MB 的照片。');return;}
   state.busy=true;updateControls();tell('正在读取照片…');const url=URL.createObjectURL(file);
   try{const img=new Image();img.src=url;await img.decode();if(!img.naturalWidth)throw new Error('无法读取这张照片。');await makePhoto(img,img.naturalWidth,img.naturalHeight,{crop:false,kind:'导入'});tell('照片已处理。请在预览里保存。');}
@@ -73,13 +80,13 @@ $('startButton').onclick=startCamera;
 $('flipButton').onclick=()=>{state.facing=state.facing==='environment'?'user':'environment';startCamera();};
 $('shutter').onclick=capture;
 $('gridButton').onclick=()=>{state.grid=!state.grid;$('gridButton').setAttribute('aria-pressed',String(state.grid));updateGuide();};
-$('ratioButton').onclick=()=>{state.ratio=(state.ratio+1)%ratios.length;$('ratioButton').textContent=ratios[state.ratio].label;$('viewfinder').style.aspectRatio=String(ratios[state.ratio].value);};
-$('timerButton').onclick=()=>{state.timer=state.timer===0?3:state.timer===3?10:0;$('timerButton').textContent='定时 '+(state.timer?state.timer+'秒':'关');};
-$('sceneTabs').onclick=e=>{const b=e.target.closest('[data-scene]');if(b){state.scene=b.dataset.scene;updateGuide();}};
-$('strength').oninput=e=>{state.strength=Number(e.target.value);updateFilter();};
+$('ratioButton').onclick=()=>{guide?.cancel();state.ratio=(state.ratio+1)%ratios.length;$('ratioButton').textContent=ratios[state.ratio].label;$('viewfinder').style.aspectRatio=String(ratios[state.ratio].value);};
+$('timerButton').onclick=()=>{guide?.cancel();state.timer=state.timer===0?3:state.timer===3?10:0;$('timerButton').textContent='定时 '+(state.timer?state.timer+'秒':'关');};
+$('sceneTabs').onclick=e=>{const b=e.target.closest('[data-scene]');if(b){guide?.cancel();state.scene=b.dataset.scene;updateGuide();}};
+$('strength').oninput=e=>{guide?.cancel();state.strength=Number(e.target.value);updateFilter();};
 $('importButton').onclick=$('importStartButton').onclick=()=>$('fileInput').click();
 $('fileInput').onchange=e=>importPhoto(e.target.files[0]);
-$('lastPhoto').onclick=showPhoto;
+$('lastPhoto').onclick=()=>showPhoto();
 $('closePhoto').onclick=$('retakeButton').onclick=()=>$('photoDialog').close();
 $('photoDialog').addEventListener('close',()=>{if(state.stream&&!document.hidden)video.play().catch(()=>{releaseStream();showStart('请点开启相机继续拍照。');});});
 $('shareButton').onclick=async()=>{
@@ -91,7 +98,8 @@ $('helpButton').onclick=()=>$('helpDialog').showModal();$('closeHelp').onclick=$
 function suspend(){state.request++;state.opening=false;cancelCountdown();releaseStream();showStart('相机已暂停。返回后点击开启相机继续。');}
 document.addEventListener('visibilitychange',()=>{if(document.hidden)suspend();});window.addEventListener('pagehide',suspend);
 video.addEventListener('resize',()=>{if(state.stream)$('resolution').textContent=`${video.videoWidth} × ${video.videoHeight}`;});
-const ai=setupAI({video,getCamera:()=>({active:!!state.stream,ready:!!state.stream&&video.readyState>=2&&!state.busy&&!state.opening,mirrored:state.mirrored,ratio:ratios[state.ratio].value,scene:state.scene}),setBusy:value=>{state.busy=value;updateControls();},makePhoto});
+const ai=setupAI({video,getCamera:()=>({active:!!state.stream,ready:!!state.stream&&video.readyState>=2&&!state.busy&&!state.opening,mirrored:state.mirrored,ratio:ratios[state.ratio].value,scene:state.scene}),beforeAnalyze:()=>guide?.cancel(),setBusy:value=>{state.busy=value;updateControls();},makePhoto});
+guide=setupGuide({video,ai,makePhoto,cancelCountdown,getCamera:()=>({ready:!!state.stream&&video.readyState>=2&&!state.busy&&!state.opening,mirrored:state.mirrored,ratio:ratios[state.ratio].value,aspectRatio:ratios[state.ratio].label,scene:state.scene})});
 updateGuide();updateFilter();updateControls();
 // Optional browser agent access exposes settings only; it never captures or shares images.
 const modelContext=document.modelContext;

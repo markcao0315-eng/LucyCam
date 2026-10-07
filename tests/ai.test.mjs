@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {once} from 'node:events';
 import {createAppServer} from '../server.mjs';
 import {validateComposition} from '../ai.mjs';
+import {photographyPrompt} from '../photo-prompts.mjs';
 
 const composition = {subject: '树与步道', advice: '保留右侧步道，减少上方空白。', centerX: .55, centerY: .5, scale: .8};
 // Minimal SOF/EOI fixture for server-side JPEG envelope validation (provider is mocked).
@@ -54,6 +55,7 @@ test('authenticated frame reaches only configured Gemini model and returns valid
   assert.match(f.calls[0].url, /\/gemini-3\.1-flash-lite:generateContent$/);
   assert.equal(f.calls[0].request.headers['x-goog-api-key'], 'test-only-key');
   const request = JSON.parse(f.calls[0].request.body);
+  assert.equal(request.systemInstruction.parts[0].text,photographyPrompt(false));
   assert.equal(request.contents[0].parts[1].inlineData.data, jpeg);
   assert.equal(request.generationConfig.responseMimeType, 'application/json');
   const publicStatus = await (await fetch(f.base + '/api/status')).text();

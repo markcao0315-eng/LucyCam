@@ -1,7 +1,8 @@
 import {cropRect, outputSize} from './photo-utils.js';
 const $ = id => document.getElementById(id);
 
-export function setupAI({video, getCamera, setBusy, makePhoto}) {
+export function setupAI({video, getCamera, setBusy, makePhoto, beforeAnalyze=()=>{}}) {
+  let live=false;
   let configured = false, authenticated = false, loading = false, refreshing = false, frame = null, result = null, controller = null, generation = 0;
   const message = text => {$('aiStatus').textContent = text;};
   function update() {
@@ -20,6 +21,7 @@ export function setupAI({video, getCamera, setBusy, makePhoto}) {
       if (!response.ok) throw new Error();
       const status = await response.json();
       configured = status.features?.aiComposition === true;
+      live=status.features?.liveTracking===true;
       authenticated = status.authenticated === true;
       const issues = status.configuration?.issues;
       message(configured ? '点击上传当前一帧，由 Google AI 分析构图。' :
@@ -27,6 +29,7 @@ export function setupAI({video, getCamera, setBusy, makePhoto}) {
     } catch {configured = false; message('暂时无法连接 AI 后台，普通拍照仍可使用。请点击重新检查。');}
     refreshing = false;
     update();
+    document.dispatchEvent(new Event('ai-status'));
   }
   async function request(path, body, signal) {
     const response = await fetch(path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body), signal});
@@ -55,6 +58,7 @@ export function setupAI({video, getCamera, setBusy, makePhoto}) {
   }
   async function analyze() {
     if (loading) return;
+    beforeAnalyze();
     if (!authenticated) {
       $('accessStatus').textContent = '';
       $('accessDialog').showModal();
@@ -99,7 +103,7 @@ export function setupAI({video, getCamera, setBusy, makePhoto}) {
     try {
       await request('/api/session', {code: input.value}, AbortSignal.timeout(15000));
       authenticated = true; input.value = ''; $('accessDialog').close();
-      message('已解锁。点击 AI 构图上传当前一帧。');
+      message('已解锁。请再次点击 AI 按钮开始本轮。');
     } catch (error) {$('accessStatus').textContent = error.message || '验证失败，请重试。';}
     finally {$('unlockAI').disabled = false;}
   };
@@ -133,5 +137,7 @@ export function setupAI({video, getCamera, setBusy, makePhoto}) {
   window.addEventListener('focus', () => {if (!configured) refresh();});
   window.addEventListener('pageshow', () => {if (!configured) refresh();});
   refresh();
-  return {update, available: () => configured};
+  return {update, available: () => configured,request,status:()=>({configured,authenticated,live}),requireUnlock:()=>{
+    if(authenticated)return true;$('accessStatus').textContent='';$('accessDialog').showModal();return false;
+  }};
 }

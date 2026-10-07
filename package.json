@@ -1,13 +1,21 @@
 {
   "name": "lucycam-web",
   "private": true,
-  "version": "0.3.1",
+  "version": "0.4.0",
   "type": "module",
-  "engines": {"node": ">=24 <25"},
+  "engines": {
+    "node": ">=24 <25"
+  },
   "scripts": {
     "dev": "node serve.mjs",
     "start": "node server.mjs",
-    "check": "node --check ai.mjs && node --check dist/ai-ui.js && node --check server.mjs && node --check serve.mjs && node --check dist/app.js && node --check dist/photo-utils.js",
-    "test": "node --test tests/*.test.mjs"
+    "check": "node scripts/check.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "test:browser": "playwright test",
+    "prompts:build": "node scripts/build-photo-prompts.mjs",
+    "test:soak": "node scripts/tracking-soak.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1"
   }
 }
