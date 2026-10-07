@@ -14,7 +14,7 @@ export function setupPhotoEditor({makePhoto}){
     for(const key of ['exposure','contrast','saturation']){const k=key[0].toUpperCase()+key.slice(1),value=current.adjustments?.[key]||0;$('review'+k).value=value;$('review'+k+'Value').textContent=value;}
     for(const [key,label] of [['subjectEV','SubjectLight'],['backgroundEV','BackgroundLight']]){const value=current.lighting?.[key]||0;$('review'+label).value=value;$('review'+label+'Value').textContent=value;}
     $('reviewLighting').hidden=!current.subjectBox;
-    $('reviewRecommend').hidden=!recommended;
+    $('reviewRecommend').hidden=!recommended;$('reviewRecommend').textContent=info?.kind==='本地构图'?'恢复本地建议':'恢复 AI 推荐';
     $('reviewReason').textContent=info?.reason||styles.find(s=>s.id===current.filter.id)?.description||'从完整底图重新处理；切换风格不会叠加效果。';
     document.querySelectorAll('#styleChoices [data-style]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.style===current.filter.id)));
     document.querySelectorAll('#cropChoices [data-crop]').forEach(b=>b.setAttribute('aria-pressed',String(Number(b.dataset.crop)===info.cropIndex)));
@@ -29,7 +29,7 @@ export function setupPhotoEditor({makePhoto}){
       if(!active())return;
       published={current:config,info:copy(info)};
       $('reviewStatus').textContent='已应用，可保存。';
-      const requested=info.requestedZoom?`AI 期望 ${info.requestedZoom.toFixed(2)}×；拍摄实际 ${info.actualZoom.toFixed(2)}×。${info.adjusted?'为容纳主体或满足画质预算，执行时已调整范围。':''}`:'';
+      const requested=info.requestedZoom?`${info.kind==='本地构图'?'本地建议':'AI 期望'} ${info.requestedZoom.toFixed(2)}×；拍摄实际 ${info.actualZoom.toFixed(2)}×。${info.adjusted?'为容纳主体或满足画质预算，执行时已调整范围。':''}`:'';
       const local=config.lighting&&(config.lighting.subjectEV||config.lighting.backgroundEV)?(result.locallyAdjusted?'局部光影已应用（按主体区域和像素颜色估计）。':'主体与背景颜色难以区分，已跳过局部光影。'):'局部光影未启用。';
       $('reviewRecipe').textContent=`${requested} 当前保留底图 ${(100*config.crop.sw/source.width).toFixed(0)}% 宽度，${result.width} × ${result.height}；${looks.find(f=>f.id===config.filter.id).name} ${config.filter.strength}%；曝光 ${config.adjustments?.exposure||0} EV。${local}`;
     }catch(error){

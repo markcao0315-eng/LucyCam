@@ -19,7 +19,7 @@ export class TrackingClient {
     });
     this.rejectReady=null;
   }
-  sample(source=this.video,mediaTime=this.video.currentTime){
+  sample(source=this.video,mediaTime=this.video.currentTime,{rebase=false}={}){
     if(this.stopped||this.busy)return;
     const width=source.videoWidth||source.width,height=source.videoHeight||source.height;
     const factor=Math.min(1,480/Math.max(width,height));
@@ -27,8 +27,8 @@ export class TrackingClient {
     this.ctx.drawImage(source,0,0,this.canvas.width,this.canvas.height);
     const rgba=this.ctx.getImageData(0,0,this.canvas.width,this.canvas.height).data.buffer;
     const time=performance.now();this.busy=true;this.lastTime=time;this.lastMedia=mediaTime;
-    this.worker.postMessage({type:'frame',runId:this.runId,frameId:++this.frameId,time,mediaTime,width:this.canvas.width,height:this.canvas.height,rgba},[rgba]);
-    return {width:this.canvas.width,height:this.canvas.height};
+    this.worker.postMessage({type:'frame',rebase,runId:this.runId,frameId:++this.frameId,time,mediaTime,width:this.canvas.width,height:this.canvas.height,rgba},[rgba]);
+    return {width:this.canvas.width,height:this.canvas.height,frameId:this.frameId};
   }
   start(){
     const tick=(time,meta)=>{

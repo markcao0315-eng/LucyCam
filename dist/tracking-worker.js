@@ -23,6 +23,7 @@ self.onmessage=async({data})=>{
     if(data.type!=='frame')return;
     if(runId===undefined)runId=data.runId;
     if(runId!==data.runId)return;
+    if(data.rebase){tracker.dispose();const {ImageTracker}=await import('./tracking-core.js');tracker=new ImageTracker(runtime);}
     const start=performance.now();
     const result=tracker.process(data);
     postMessage({...result,type:'result',runId,frameId:data.frameId,time:data.time,mediaTime:data.mediaTime,width:data.width,height:data.height,processingMs:performance.now()-start,heapBytes:runtime.HEAPU8?.buffer.byteLength});

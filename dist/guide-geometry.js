@@ -1,3 +1,4 @@
+import {protectedRegion} from './composition-region.js';
 import {cropRect} from './photo-utils.js';
 
 export const GUIDE_TUNING=Object.freeze({radius:.075,alignMs:400,zoomMs:450,settleMs:300,subjectGraceMs:600,maxVelocity:.35});
@@ -47,7 +48,7 @@ export function guidanceTarget(base,plan,transform){
 }
 export function lockCrop({width,height,ratio,base,plan,transform,zoomMode='quality'}) {
   if(plan.framing){
-    const crop=cropRect(width,height,ratio),subject=boxCorners(base,plan.subject.box).map(p=>point(transform,p));
+    const crop=cropRect(width,height,ratio),subject=boxCorners(base,protectedRegion(plan)).map(p=>point(transform,p));
     if(subject.some(p=>p.x<crop.sx-1e-5||p.y<crop.sy-1e-5||p.x>crop.sx+crop.sw+1e-5||p.y>crop.sy+crop.sh+1e-5))throw new Error('请按方向提示转动镜头，把主体完整收进当前画面。');
     return Object.freeze({...crop,adjusted:false});
   }
@@ -57,7 +58,7 @@ export function lockCrop({width,height,ratio,base,plan,transform,zoomMode='quali
   const viewport=cropRect(width,height,ratio);
   const desired=Math.max(...corners.map(p=>Math.max(2*Math.abs(p.x-center.x)/viewport.sw,2*Math.abs(p.y-center.y)/viewport.sh)));
   const quality=Math.min(1,Math.max(720/Math.min(viewport.sw,viewport.sh),Math.sqrt(1e6/(viewport.sw*viewport.sh))));
-  const subject=boxCorners(base,plan.subject.box).map(p=>point(transform,p)),epsilon=1e-5;
+  const subject=boxCorners(base,protectedRegion(plan)).map(p=>point(transform,p)),epsilon=1e-5;
   const minX=Math.min(...subject.map(p=>p.x)),maxX=Math.max(...subject.map(p=>p.x));
   const minY=Math.min(...subject.map(p=>p.y)),maxY=Math.max(...subject.map(p=>p.y));
   const unavailable=()=>{throw new Error('请按方向提示调整，让主体完整进入画面并留出边缘。');};

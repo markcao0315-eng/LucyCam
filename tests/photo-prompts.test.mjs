@@ -26,5 +26,6 @@ test('live contract permits scene discovery, meaningful zoom and bounded color e
   assert.ok(guideSchema.required.includes('adjustments'));assert.ok(guideSchema.required.includes('lookReason'));
   assert.match(photoRules.guide,/scene=auto/);assert.match(photoRules.guide,/最终期望保留/);assert.match(photoRules.core,/不能把portrait当成人脸特写/);
   assert.ok(!photoRules.compose.includes('adjustments'));
+  assert.ok(guideSchema.required.includes('compositionKind'));assert.match(photoRules.core,/没有主体或不值得拍为由拒拍/);assert.match(photoRules.guide,/使用全景真实特征追踪/);
   assert.ok(guideSchema.required.includes('alternatives'));assert.ok(guideSchema.required.includes('lighting'));assert.match(photoRules.core,/不因portrait标签统一限制到40/);
 });

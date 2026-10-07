@@ -2,9 +2,10 @@ import {boxCorners,point,lockCrop} from './guide-geometry.js';
 // Convert AI regions once into coordinates of the actual shutter frame.
 export function captureComposition(controller){
   const {config,base,plan,transform,width,height,ratio,zoomMode}=controller;
+  if(controller.frameOnly)return {subjectBox:null,crops:[{label:'完整取景',reason:plan.advice,crop:config.crop}],requestedZoom:1,actualZoom:1,adjusted:false,zoomMode};
   const points=boxCorners(base,plan.subject.box).map(p=>point(transform,p)),xs=points.map(p=>p.x),ys=points.map(p=>p.y);
   const subjectBox={x:Math.min(...xs),y:Math.min(...ys),width:Math.max(...xs)-Math.min(...xs),height:Math.max(...ys)-Math.min(...ys)};
-  const crops=[{label:'AI 推荐',reason:plan.advice,crop:config.crop}];
+  const crops=[{label:controller.source==='local'?'本地建议':'AI 推荐',reason:plan.advice,crop:config.crop}];
   for(const candidate of plan.alternatives||[]){
     try{
       const crop=lockCrop({width,height,ratio,base,transform,zoomMode,plan:{...plan,crop:candidate.crop}});

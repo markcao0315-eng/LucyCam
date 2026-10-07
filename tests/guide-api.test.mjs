@@ -37,13 +37,13 @@ test('new and legacy paths share the same in-flight lock',async t=>{
   const pending=f.post('/api/guide-plan');while(!release)await new Promise(r=>setTimeout(r,2));
   assert.equal((await f.post('/api/compose')).status,429);assert.equal(f.calls(),1);release();assert.equal((await pending).status,200);
 });
-test('invalid provider geometry is a safe error and never silently clamped',async t=>{
+test('invalid provider crop is repaired before guiding and reports its diagnostic code',async t=>{
   const f=await fixture(t,{fetchImpl:async()=>Response.json({candidates:[{finishReason:'STOP',content:{parts:[{text:JSON.stringify({...plan,crop:{centerX:.9,centerY:.5,scale:.8}})}]}}]})});await f.login();
-  const response=await f.post('/api/guide-plan');assert.equal(response.status,502);assert.match((await response.json()).error,/构图数据无效/);
+  const response=await f.post('/api/guide-plan');assert.equal(response.status,200);const result=await response.json();assert.equal(result.plan.crop.centerX,.6);assert.equal(result.plan.crop.scale,.8);assert.deepEqual(result.plan.subject,plan.subject);assert.deepEqual(result.recovery.issues,['crop_fitted']);assert.equal(f.calls(),1);
 });
 test('exact static whitelist serves modules and pinned runtime while protecting documents',async t=>{
   const f=await fixture(t);
-  for(const file of ['photo-styles','photo-editor','photo-composition','guide-coach','motion-sensor','guide-ui','guide-controller','guide-geometry','camera-renderer','tracking-worker','tracking-client','tracking-core','tracking-math','guide-plan']){const r=await fetch(`${f.base}/${file}.js`);assert.equal(r.status,200);assert.match(r.headers.get('content-type'),/javascript/);}
+  for(const file of ['composition-region','guide-recovery','local-composition','photo-styles','photo-editor','photo-composition','guide-coach','motion-sensor','guide-ui','guide-controller','guide-geometry','camera-renderer','tracking-worker','tracking-client','tracking-core','tracking-math','guide-plan']){const r=await fetch(`${f.base}/${file}.js`);assert.equal(r.status,200);assert.match(r.headers.get('content-type'),/javascript/);}
   const vendor=await fetch(`${f.base}/vendor/opencv-4.13.0.js`);assert.equal(vendor.status,200);assert.match(vendor.headers.get('content-type'),/javascript/);
   for(const file of ['/docs/LucyCam-实时AI拍摄技术实施书.md','/tests/guide-api.test.mjs','/vendor/unknown.js','/AGENTS.md'])assert.equal((await fetch(f.base+file)).status,404);
 });
@@ -66,4 +66,9 @@ test('new style, candidate crops and bounded local light share one provider requ
  const next={...plan,filter:{id:'forest',strength:85},lighting:{subjectEV:.3,backgroundEV:-.15},alternatives:[{label:'更多环境',reason:'保留场景的关系。',crop:{centerX:.5,centerY:.5,scale:1}}]};
  const f=await fixture(t,{fetchImpl:async()=>Response.json({candidates:[{finishReason:'STOP',content:{parts:[{text:JSON.stringify(next)}]}}]})});await f.login();
  const r=await f.post('/api/guide-plan');assert.equal(r.status,200);const result=await r.json();assert.deepEqual(result.plan.alternatives,next.alternatives);assert.deepEqual(result.plan.lighting,next.lighting);assert.equal(result.plan.filter.strength,85);assert.equal(f.calls(),1);
+});
+
+for(const [name,text] of [['invalid_json','{broken'],['no_subject',JSON.stringify({...plan,canGuide:false})],['invalid_focus',JSON.stringify({...plan,subject:null})]])test(`${name} returns a reference-bound local recovery without paid retry`,async t=>{
+  const f=await fixture(t,{fetchImpl:async()=>Response.json({candidates:[{finishReason:'STOP',content:{parts:[{text}]}}]})});await f.login();
+  const r=await f.post('/api/guide-plan');assert.equal(r.status,200);const result=await r.json();assert.equal(result.plan,null);assert.equal(result.referenceId,payload.referenceId);assert.equal(result.recovery.source,'local');assert.equal(f.calls(),1);
 });

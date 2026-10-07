@@ -5,7 +5,7 @@ import {setupPhotoEditor} from './photo-editor.js';
 import {renderPixels} from './photo-render-client.js';
 import {filters,looks,cropRect,outputSize,cssFilter} from './photo-utils.js';
 const $=id=>document.getElementById(id);
-$('appVersion').textContent='v0.9.0';
+$('appVersion').textContent='v0.9.1';
 const video=$('video');
 let guide=null,retouch=null,editor=null;
 const state={stream:null,facing:'environment',mirrored:false,ratio:0,timer:0,filter:'original',strength:70,scene:'auto',grid:true,busy:false,opening:false,request:0,countToken:0,photo:null};
@@ -72,7 +72,7 @@ async function makePhoto(source,width,height,options={}){
   $('photoPreview').src=url;$('lastThumbnail').replaceChildren(Object.assign(document.createElement('img'),{src:url,alt:''}));$('lastPhoto').disabled=false;
   if(previous)URL.revokeObjectURL(previous.url);showPhoto(true);return {...size,...lookResult};
 }
-function showPhoto(fromCapture=false){if(!fromCapture)guide?.cancel();if(!state.photo)return;const p=state.photo;$('photoMeta').textContent=`${p.width} × ${p.height} · ${['AI 修图','AI 原片'].includes(p.kind)?p.kind:p.filter} · ${(p.blob.size/1024/1024).toFixed(1)} MB`;$('saveStatus').textContent='尚未保存到相册，请使用下方按钮或长按照片。';const canShare=!!navigator.share&&!!navigator.canShare?.({files:[p.file]});$('shareButton').hidden=!canShare;$('downloadButton').textContent=canShare?'下载图片':'下载图片 / 保存备用';if(!$('photoDialog').open)$('photoDialog').showModal();video.pause();}
+function showPhoto(fromCapture=false){if(!fromCapture)guide?.cancel();if(!state.photo)return;const p=state.photo;$('photoMeta').textContent=`${p.kind==='本地构图'?'本地构图 · ':''}${p.width} × ${p.height} · ${['AI 修图','AI 原片'].includes(p.kind)?p.kind:p.filter} · ${(p.blob.size/1024/1024).toFixed(1)} MB`;$('saveStatus').textContent='尚未保存到相册，请使用下方按钮或长按照片。';const canShare=!!navigator.share&&!!navigator.canShare?.({files:[p.file]});$('shareButton').hidden=!canShare;$('downloadButton').textContent=canShare?'下载图片':'下载图片 / 保存备用';if(!$('photoDialog').open)$('photoDialog').showModal();video.pause();}
 async function capture(){
   if(guide?.shoot())return;
   const guided=guide?.active(),config=guide?.currentConfig();guide?.cancel();

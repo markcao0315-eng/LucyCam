@@ -13,7 +13,7 @@ const assets = new Map([
   ['/ai-ui.js', 'text/javascript; charset=utf-8'],
   ['/photo-utils.js', 'text/javascript; charset=utf-8'],
   ...['photo-render-client','photo-render-worker'].map(name=>[`/${name}.js`,'text/javascript; charset=utf-8']),
-  ...['photo-styles','photo-editor','photo-composition','retouch-ui','guide-coach','motion-sensor','guide-geometry','tracking-math','tracking-core','tracking-worker','tracking-client','guide-plan','guide-controller','camera-renderer','guide-ui'].map(name=>[`/${name}.js`,'text/javascript; charset=utf-8']),
+  ...['composition-region','guide-recovery','local-composition','photo-styles','photo-editor','photo-composition','retouch-ui','guide-coach','motion-sensor','guide-geometry','tracking-math','tracking-core','tracking-worker','tracking-client','guide-plan','guide-controller','camera-renderer','guide-ui'].map(name=>[`/${name}.js`,'text/javascript; charset=utf-8']),
   ['/vendor/opencv-4.13.0.js','text/javascript; charset=utf-8'],
   ['/styles.css', 'text/css; charset=utf-8'],
   ['/manifest.webmanifest', 'application/manifest+json'],
@@ -53,7 +53,7 @@ export function createAppServer(options = {}) {
     if (pathname === '/api/status') {
       return json(res, 200, {
         app: 'LucyCam',
-        version: '0.9.0',
+        version: '0.9.1',
         aiRulesVersion: promptVersion,
         features: {camera: true, aiComposition: ai.ready, liveTracking: (options.env||process.env).LIVE_GUIDANCE_ENABLED==='true'},
         authenticated: ai.ready && ai.authenticated(req),

@@ -128,8 +128,8 @@ test('320px layout and feature off preserve normal photo with zero paid requests
   app.env.LIVE_GUIDANCE_ENABLED='false';await installCamera(page);await page.setViewportSize({width:320,height:780});await page.goto(app.url);await expect(page.locator('#liveSection')).toBeHidden();await page.locator('#startButton').click();await page.locator('#shutter').click();await expect(page.locator('#photoDialog')).toBeVisible();expect(app.calls).toBe(0);
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await page.screenshot({path:'qa-results/legacy-320.png'});
 });
-test('safe provider error offers retry and keeps normal camera',async({page,app})=>{
-  app.failure=true;await open(page,app);await unlock(page);await page.locator('#guideButton').click();await state(page,'LOST');await expect(page.locator('#liveStatus')).toContainText('暂时不可用');expect(await page.locator('#liveStatus').textContent()).not.toContain('secret');await page.locator('#shutter').click();await expect(page.locator('#photoDialog')).toBeVisible();
+test('provider outage continues with local structure without another upload',async({page,app})=>{
+  app.failure=true;await open(page,app);await unlock(page);await page.locator('#guideButton').click();await state(page,'REVIEW');await expect(page.locator('#photoDialog')).toBeVisible();expect(await page.locator('#liveStatus').textContent()).not.toContain('secret');expect(app.calls).toBe(1);
 });
 
 test('configuration refresh and legacy single-frame crop remain available with manual rules',async({page,app})=>{
@@ -163,9 +163,9 @@ test('cancel at CAPTURING boundary beats queued async export; repeated clicks up
   await expect.poll(()=>app.calls).toBe(1);await state(page,'IDLE');await page.waitForTimeout(500);await expect(page.locator('#photoDialog')).not.toBeVisible();expect(app.calls).toBe(1);
 });
 
-test('manual canGuide=false stop placeholder never becomes an automatic target',async({page,app})=>{
+test('model refusal uses reference pixels for local structure and completes one shot',async({page,app})=>{
   app.plan={canGuide:false,subject:{label:'无法可靠定位',box:{x:0,y:0,width:1,height:1}},crop:{centerX:.5,centerY:.5,scale:1},filter:{id:'original',strength:0},advice:'请换到明亮位置再拍。'};
-  await open(page,app);await unlock(page);await page.locator('#guideButton').click();await state(page,'LOST');await expect(page.locator('#liveStatus')).toContainText('明亮位置');await expect(page.locator('#guideOverlay')).toBeHidden();await expect(page.locator('#photoDialog')).not.toBeVisible();expect(app.calls).toBe(1);
+  await open(page,app);await unlock(page);await page.locator('#guideButton').click();await state(page,'REVIEW');await expect(page.locator('#photoDialog')).toBeVisible();await expect(page.locator('#photoMeta')).toContainText('本地构图');expect(app.calls).toBe(1);
 });
 
 test('320px live target and cancel stay within the viewport without horizontal overflow',async({page,app})=>{
@@ -271,4 +271,54 @@ test('quality preference widens the same chosen scene and cancel prevents manual
  app.plan.subject.box={x:.42,y:.42,width:.16,height:.16};app.plan.crop.scale=.3;
  await installCamera(page);await page.goto(app.url);await page.locator('#startButton').click();await unlock(page);await page.locator('#guideButton').click();await state(page,'READY');await expect(page.locator('#guideMetrics')).toContainText('3.33×');
  await page.locator('#zoomMode').selectOption('quality');await state(page,'READY');await expect(page.locator('#guideMetrics')).toContainText('1.66×');expect(app.calls).toBe(1);await page.locator('#cancelInView').click();await state(page,'IDLE');await expect(page.locator('#guidePreview')).toBeHidden();await expect(page.locator('#photoDialog')).not.toBeVisible();
+});
+
+
+test('bad alternative and partial lighting do not discard the valid primary crop or forest style',async({page,app})=>{
+  app.plan={...defaultPlan,filter:{id:'forest',strength:85},lighting:{subjectEV:.2,backgroundEV:null},alternatives:[{label:'坏备选',reason:'超出边界',crop:{centerX:.99,centerY:.5,scale:.7}}]};
+  await open(page,app);await unlock(page);await page.locator('#guideButton').click();await state(page,'REVIEW');
+  await expect(page.locator('#reviewFilter')).toHaveValue('forest');await expect(page.locator('#cropChoices button')).toHaveCount(2);expect(app.calls).toBe(1);
+});
+
+test('empty wall stays in live framing, has no fake target, and explicit shutter saves a fresh frame',async({page,app})=>{
+  app.plan=null;await open(page,app);await unlock(page);await page.evaluate(()=>{window.cameraFixture.wall=true;});await page.waitForTimeout(150);
+  await page.locator('#guideButton').click();await state(page,'FRAMING');await expect(page.locator('#guideOverlay')).toBeHidden();await expect(page.locator('#liveStatus')).toContainText('桌沿');
+  await page.waitForTimeout(1600);await expect(page.locator('#photoDialog')).not.toBeVisible();
+  await page.setViewportSize({width:320,height:780});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:'qa-results/structure-wall-320.png'});
+  await page.locator('#shutter').click();await state(page,'REVIEW');await expect(page.locator('#photoDialog')).toBeVisible();expect(app.calls).toBe(1);
+  const size=await page.locator('#photoPreview').evaluate(async img=>{await img.decode();return [img.naturalWidth,img.naturalHeight];});expect(size).toEqual([1440,1920]);
+});
+
+test('structure plan tracks real window and desk lines even when its core has no texture',async({page,app})=>{
+  app.plan={...defaultPlan,compositionKind:'structure',subject:{label:'窗框与桌面',box:{x:.46,y:.36,width:.04,height:.04}},crop:{centerX:.6,centerY:.5,scale:.8}};
+  await installCamera(page,{structure:true});await page.goto(app.url);await page.locator('#startButton').click();await page.locator('#autoCapture').check();await unlock(page);
+  await page.locator('#guideButton').click();await state(page,'GUIDING');const before=await page.locator('#guideTarget').evaluate(e=>parseFloat(e.style.left));
+  await page.evaluate(async()=>{for(let i=0;i<12;i++){window.cameraFixture.x-=12;await new Promise(r=>setTimeout(r,90));}});
+  await state(page,'REVIEW');await expect(page.locator('#photoDialog')).toBeVisible();expect(before).toBeGreaterThan(190);expect(app.calls).toBe(1);
+  await expect(page.locator('#reviewRecipe')).toContainText('AI 期望');
+});
+
+
+test('turning from blank wall to real texture resumes local guidance without another AI click',async({page,app})=>{
+  app.plan=null;await open(page,app);await unlock(page);await page.evaluate(()=>{window.cameraFixture.wall=true;});await page.waitForTimeout(150);
+  await page.locator('#guideButton').click();await state(page,'FRAMING');
+  await page.evaluate(()=>{window.cameraFixture.wall=false;});await state(page,'REVIEW');await expect(page.locator('#photoMeta')).toContainText('本地构图');expect(app.calls).toBe(1);
+});
+
+for(const action of ['cancel','background','freeze'])test(`blank reference ${action} prevents fallback or rebase from firing the shutter`,async({page,app})=>{
+  app.plan=null;await open(page,app);await unlock(page);await page.evaluate(()=>{window.cameraFixture.wall=true;});await page.waitForTimeout(150);
+  await page.locator('#guideButton').click();await state(page,'FRAMING');
+  if(action==='cancel')await page.locator('#cancelInView').click();
+  else if(action==='background')await page.evaluate(()=>{Object.defineProperty(document,'hidden',{configurable:true,get:()=>true});document.dispatchEvent(new Event('visibilitychange'));});
+  else await page.evaluate(()=>{window.cameraFixture.freeze=true;});
+  await state(page,action==='freeze'?'LOST':'IDLE');await page.evaluate(()=>{window.cameraFixture.wall=false;});await page.waitForTimeout(1200);
+  await expect(page.locator('#photoDialog')).not.toBeVisible();expect(app.calls).toBe(1);
+});
+
+
+test('room-wide structure box can crop and shoot without an impossible step-back loop',async({page,app})=>{
+  app.plan={...defaultPlan,compositionKind:'structure',subject:{label:'整体空间',box:{x:0,y:0,width:1,height:1}},crop:{centerX:.5,centerY:.5,scale:.8}};
+  await open(page,app);await unlock(page);await page.locator('#guideButton').click();await state(page,'REVIEW');
+  const width=await page.locator('#photoPreview').evaluate(async img=>{await img.decode();return img.naturalWidth;});expect(width).toBeGreaterThan(1140);expect(width).toBeLessThan(1165);expect(app.calls).toBe(1);
 });

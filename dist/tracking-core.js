@@ -85,7 +85,7 @@ export class ImageTracker {
       // are anchored through inverse(T), never a reset of the AI reference.
       this.detect(gray,pairs.map(p=>({x:p.u,y:p.v})),pairs.map(p=>p.anchor));
       return {valid:true,transform:this.transform,inliers:model.inliers.length,inlierRatio:model.ratio,residual:model.residual,
-        fbError:median(pairs.map(p=>p.fb)),coverage:space,velocity,referenceResidual,subjectKnown:!!this.subject,subjectSafe,subjectPoints:subjectPairs.length,subjectDrift,subjectMotion};
+        fbError:median(pairs.map(p=>p.fb)),coverage:space,velocity,referenceResidual,structureSafe:referenceBackground.length>=10&&referenceResidual<6,subjectKnown:!!this.subject,subjectSafe,subjectPoints:subjectPairs.length,subjectDrift,subjectMotion};
     }catch(error){if(this.previous!==gray)gray.delete();throw error;}
     finally{for(const mat of [next,back,status,backStatus,err,backErr])mat.delete();}
   }

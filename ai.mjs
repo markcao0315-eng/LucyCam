@@ -1,5 +1,6 @@
 import {createHash, createHmac, randomBytes, timingSafeEqual} from 'node:crypto';
-import {validateGuidePlan,guideSchema} from './dist/guide-plan.js';
+import {guideSchema} from './dist/guide-plan.js';
+import {recoverGuidePlan} from './dist/guide-recovery.js';
 import {photographyPrompt} from './photo-prompts.mjs';
 
 import {fail,jpegDimensions,readJson} from './request-utils.mjs';
@@ -109,13 +110,14 @@ export function createAI({env = process.env, fetchImpl = fetch, now = Date.now, 
       if (!response.ok) throw fail(response.status === 429 ? 429 : 502, response.status === 429 ? 'AI 服务额度不足或忙碌，请稍后再试。' : 'AI 服务暂时不可用，请检查 Render 中的模型、API Key 和 Google 项目权限。');
       const data = await response.json();
       const candidate = data.candidates?.[0];
+      const localRecovery=code=>({schemaVersion:1,referenceId:body.referenceId,model,plan:null,recovery:{source:'local',issues:[code]}});
+      if(guide&&candidate?.finishReason!=='STOP')return localRecovery('provider_incomplete');
       if (candidate?.finishReason !== 'STOP') throw fail(502, 'AI 没有完成分析，请换个画面再试。');
       const text = candidate.content?.parts?.filter(p => typeof p.text === 'string' && !p.thought).map(p => p.text).join('');
       let result;
-      try {result = JSON.parse(text);} catch {throw fail(502, 'AI 返回格式不正确，请重试。');}
+      try {result = JSON.parse(text);} catch {if(guide)return localRecovery('provider_json');throw fail(502, 'AI 返回格式不正确，请重试。');}
       if(guide){
-        let plan;try{plan=validateGuidePlan(result,{scene:body.scene});}catch{throw fail(502,'AI 构图数据无效、滤镜不适合当前模式或裁切未保留主体，请重新分析。');}
-        return {schemaVersion:1,referenceId:body.referenceId,model,plan};
+        return {schemaVersion:1,referenceId:body.referenceId,model,...recoverGuidePlan(result)};
       }
       return {composition: validateComposition(result), model};
     } catch (error) {

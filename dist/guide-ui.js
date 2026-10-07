@@ -1,3 +1,4 @@
+import {localComposition} from './local-composition.js';
 import {MotionSensor} from './motion-sensor.js';
 import {GuideController} from './guide-controller.js';
 import {TrackingClient} from './tracking-client.js';
@@ -8,7 +9,7 @@ import {looks,neutralAdjustments} from './photo-utils.js';
 const $=id=>document.getElementById(id);
 
 export function setupGuide({video,getCamera,ai,makePhoto,cancelCountdown}){
-  let tracker=null,starting=false,epoch=0,watchdog=null,animation=null,lastDraw=0,lastLookConfig=null;
+  let tracker=null,starting=false,epoch=0,watchdog=null,animation=null,lastDraw=0,lastLookConfig=null,lastRecovery=0,lastRecoveryMedia=-1;
   const canvas=$('guidePreview'),motion=new MotionSensor();
   $('liveFilter').replaceChildren(...looks.map(f=>new Option(f.name,f.id)));
   function stop(){motion.stop();tracker?.stop();tracker=null;clearInterval(watchdog);cancelAnimationFrame(animation);canvas.hidden=true;}
@@ -17,7 +18,7 @@ export function setupGuide({video,getCamera,ai,makePhoto,cancelCountdown}){
     try{
       if(!valid()||signal.aborted)throw new Error('本轮已取消。');
       const composition=captureComposition(controller);
-      await makePhoto(frame,frame.width,frame.height,{crop:false,rect:config.crop,kind:'AI 引导',sourceWidth:config.sourceWidth,sourceHeight:config.sourceHeight,filter:config.filter,adjustments:config.adjustments,lighting:config.lighting,subjectBox:composition.subjectBox,crops:composition.crops,diagnostics:composition,recommended:true,reason:controller.plan.lookReason||controller.plan.advice,valid:()=>valid()&&!signal.aborted});
+      await makePhoto(frame,frame.width,frame.height,{crop:false,rect:config.crop,kind:controller.source==='local'?'本地构图':'AI 引导',sourceWidth:config.sourceWidth,sourceHeight:config.sourceHeight,filter:config.filter,adjustments:config.adjustments,lighting:config.lighting,subjectBox:composition.subjectBox,crops:composition.crops,diagnostics:composition,recommended:true,reason:controller.plan.lookReason||controller.plan.advice,valid:()=>valid()&&!signal.aborted});
     }finally{frame.width=frame.height=1;}
   }});
   function update(){
@@ -32,6 +33,7 @@ export function setupGuide({video,getCamera,ai,makePhoto,cancelCountdown}){
     $('liveLook').hidden=!controller.config||!['READY','SETTLING'].includes(controller.state);
     $('motionButton').disabled=motion.enabled||motion.status==='requesting'||starting||controller.active();
     $('guideHud').hidden=!starting&&!controller.active()&&controller.state!=='LOST';
+    $('liveRecommend').textContent=controller.source==='local'?'恢复本地建议':'恢复 AI 推荐';
     $('guideMotion').textContent=motion.feedback(controller.coaching?.action);
     $('guideHint').textContent=starting?'正在加载本地图像追踪…':controller.message;
     const config=controller.config;
@@ -72,13 +74,29 @@ export function setupGuide({video,getCamera,ai,makePhoto,cancelCountdown}){
     $('viewfinder').classList.toggle('is-guiding',controller.active());
     $('liveSection').dataset.state=controller.state;$('liveStatus').textContent=controller.message;
     $('guideOverlay').dataset.state=controller.state;
-    if(controller.plan&&controller.active())$('liveAdvice').textContent=`${controller.plan.subject.label}：${controller.plan.advice}${controller.coaching?' '+controller.coaching.placement:''}`;else $('liveAdvice').textContent='';
-    if(controller.config&&controller.config!==lastLookConfig&&['SETTLING','READY'].includes(controller.state)){lastLookConfig=controller.config;writeLook('live',controller.config);$('liveReason').textContent=controller.plan.lookReason||'已应用 AI 推荐，可调整或还原。';}
+    if(controller.plan&&controller.active())$('liveAdvice').textContent=`${controller.source==='local'?'本地构图 · ':''}${controller.plan.subject.label}：${controller.plan.advice}${controller.coaching?' '+controller.coaching.placement:''}`;else $('liveAdvice').textContent='';
+    if(controller.config&&controller.config!==lastLookConfig&&['SETTLING','READY'].includes(controller.state)){lastLookConfig=controller.config;writeLook('live',controller.config);$('liveReason').textContent=controller.plan.lookReason||(controller.source==='local'?'已应用本地建议，可调整或还原。':'已应用 AI 推荐，可调整或还原。');}
     if(!controller.config)canvas.hidden=true;
     overlay();update();
   }
+  function localReference(source){
+    const local=document.createElement('canvas');drawCapture(source,local,{crop:controller.base,filter:{id:'original',strength:0}},{maxEdge:96,filtered:false});
+    try{return localComposition(local.getContext('2d',{willReadFrequently:true}).getImageData(0,0,local.width,local.height),{scene:controller.scene});}
+    finally{local.width=local.height=1;}
+  }
+  function resumeTexture(){
+    if(controller.state!=='FRAMING'||!tracker||tracker.busy||video.paused||video.readyState<2||video.currentTime===lastRecoveryMedia||performance.now()-lastRecovery<1000)return;
+    lastRecovery=performance.now();lastRecoveryMedia=video.currentTime;
+    const full=document.createElement('canvas');full.width=video.videoWidth;full.height=video.videoHeight;full.getContext('2d').drawImage(video,0,0);
+    try{
+      const fallback=localReference(full);if(!fallback.textured)return;
+      const sample=tracker.sample(full,video.currentTime,{rebase:true});
+      if(sample)controller.resumeLocal(fallback,sample.frameId);
+    }finally{full.width=full.height=1;}
+  }
   function animate(){
     if(!controller.active()||controller.state==='EXPORTING')return;
+    resumeTexture();
     if(controller.config&&performance.now()-lastDraw>=100&&video.readyState>=2){drawCapture(video,canvas,previewConfig(),{maxEdge:360});canvas.hidden=false;lastDraw=performance.now();}
     overlay();animation=requestAnimationFrame(animate);
   }
@@ -92,23 +110,29 @@ export function setupGuide({video,getCamera,ai,makePhoto,cancelCountdown}){
     $('liveStatus').textContent='正在加载本地图像追踪…';update();
     const prospective=controller.runId+1;
     tracker=new TrackingClient(video,prospective,frame=>controller.frame(frame),message=>controller.lose(message));
+    let id;
     try{
       await tracker.ready();if(token!==epoch)return;
       // Capture both the AI crop and tracker reference from exactly the same full frame.
       const full=document.createElement('canvas');full.width=video.videoWidth;full.height=video.videoHeight;full.getContext('2d').drawImage(video,0,0);
       const client=tracker;tracker=null; // start() cancels the previous run.
-      const id=controller.start({width:full.width,height:full.height,ratio:camera.ratio,aspectRatio:camera.aspectRatio,scene:camera.scene,referenceId:crypto.randomUUID(),autoCapture:$('autoCapture').checked,zoomMode:$('zoomMode').value});
+      id=controller.start({width:full.width,height:full.height,ratio:camera.ratio,aspectRatio:camera.aspectRatio,scene:camera.scene,referenceId:crypto.randomUUID(),autoCapture:$('autoCapture').checked,zoomMode:$('zoomMode').value});
       tracker=client;motion.start();
       const tracking=tracker.sample(full,video.currentTime);tracker.start();
       const upload=document.createElement('canvas');drawCapture(full,upload,{crop:controller.base,mirrored:false,filter:{id:'original',strength:0}},{maxEdge:1024,filtered:false});
+      controller.fallback=localReference(full);
       const image=upload.toDataURL('image/jpeg',.8).split(',')[1];full.width=full.height=upload.width=upload.height=1;
       starting=false;watchdog=setInterval(()=>controller.tick(),50);animate();update();
       const data=await ai.request('/api/guide-plan',{referenceId:controller.referenceId,scene:camera.scene,aspectRatio:camera.aspectRatio,image,zoomMode:$('zoomMode').value,source:{width:Math.floor(controller.base.sw),height:Math.floor(controller.base.sh)}},controller.abort.signal);
-      if(controller.accept(id,data)){
-        const b=data.plan.subject.box,p=referencePoint(controller.base,b.x,b.y);
+      if(controller.accept(id,data)&&!controller.frameOnly&&controller.plan.compositionKind!=='structure'){
+        const b=controller.plan.subject.box,p=referencePoint(controller.base,b.x,b.y);
         tracker?.subject({x:p.x*tracking.width/controller.width,y:p.y*tracking.height/controller.height,width:b.width*controller.base.sw*tracking.width/controller.width,height:b.height*controller.base.sh*tracking.height/controller.height});
       }
-    }catch(error){if(token===epoch){starting=false;if(controller.active())controller.lose(error.name==='AbortError'?'分析已取消或超时，请重新分析。':error.message);else if(controller.state==='IDLE'){stop();controller.emit('LOST',error.message);}update();}}
+    }catch(error){if(token===epoch){starting=false;
+      if(controller.active(id)&&controller.fallback&&!controller.abort.signal.aborted&&(error.status>=500||error instanceof TypeError)){
+        controller.accept(id,{schemaVersion:1,referenceId:controller.referenceId,plan:null});update();return;
+      }
+      if(controller.active())controller.lose(error.name==='AbortError'?'分析已取消或超时，请重新分析。':error.message);else if(controller.state==='IDLE'){stop();controller.emit('LOST',error.message);}update();}}
   }
   $('motionButton').onclick=async()=>{
     $('motionButton').disabled=true;const enabled=await motion.enable();
@@ -135,5 +159,5 @@ export function setupGuide({video,getCamera,ai,makePhoto,cancelCountdown}){
   screen.orientation?.addEventListener('change',cancel);
   document.addEventListener('visibilitychange',()=>{if(document.hidden)cancel();});
   video.addEventListener('resize',()=>{if(controller.active()&&(video.videoWidth!==controller.width||video.videoHeight!==controller.height))cancel();});
-  return {update,cancel,currentConfig:previewConfig,active:()=>starting||controller.active(),shoot:()=>{if(!controller.active())return false;if(['READY','SETTLING'].includes(controller.state))controller.commit();else $('guideHint').textContent='请先对准目标圈，放大完成后按快门；也可以取消后普通拍摄。';return true;}};
+  return {update,cancel,currentConfig:previewConfig,active:()=>starting||controller.active(),shoot:()=>{if(!controller.active())return false;if(['READY','SETTLING','FRAMING'].includes(controller.state))controller.commit();else $('guideHint').textContent='请先对准目标圈，放大完成后按快门；也可以取消后普通拍摄。';return true;}};
 }

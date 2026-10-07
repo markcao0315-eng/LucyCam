@@ -1,11 +1,12 @@
+import {protectedRegion} from './composition-region.js';
 import {boxCorners,point,GUIDE_TUNING,guidanceTarget} from './guide-geometry.js';
 
 const clamp=(n,lo,hi)=>Math.max(lo,Math.min(hi,n));
 export function compositionStep(base,plan,transform,previousAction){
-  const points=boxCorners(base,plan.subject.box).map(p=>point(transform,p));
+  const points=boxCorners(base,protectedRegion(plan)).map(p=>point(transform,p));
   const xs=points.map(p=>(p.x-base.sx)/base.sw),ys=points.map(p=>(p.y-base.sy)/base.sh);
   const actual={x:Math.min(...xs),y:Math.min(...ys),width:Math.max(...xs)-Math.min(...xs),height:Math.max(...ys)-Math.min(...ys)};
-  const b=plan.subject.box,c=plan.crop;
+  const b=protectedRegion(plan),c=plan.crop;
   const goalScale=plan.framing?1:Math.min(1,.84/(b.width/c.scale),.84/(b.height/c.scale));
   const width=b.width/c.scale*goalScale,height=b.height/c.scale*goalScale;
   const cx=plan.framing?.subjectX??clamp((b.x+b.width/2-c.centerX)/c.scale+.5,width/2+.04,.96-width/2);
@@ -29,6 +30,6 @@ export function compositionStep(base,plan,transform,previousAction){
     }
   }
   const messages={back:'确认身后有空间后，稍往后退，让主体缩小；大小合适时会提示停下。',left:'镜头稍向左转，让主体向右移动、目标圈靠近中心。',right:'镜头稍向右转，让主体向左移动、目标圈靠近中心。',up:'稍抬高镜头，让主体向下移动，收进画面。',down:'稍压低镜头，让主体向上移动，收进画面。',hold:'位置合适，保持片刻，准备构图。'};
-  const placement=`主体目标位置：画面${cx<.42?'左侧':cx>.58?'右侧':'中间'}${cy<.42?'偏上':cy>.58?'偏下':''}；AI 将按这个位置组织构图。`;
-  return {action,error,required,actual,goal,message:(plan.framing&&['left','right','up','down'].includes(action)?'保持当前距离，':'')+messages[action],placement,arrow:{back:'↔',left:'←',right:'→',up:'↑',down:'↓',hold:'✓'}[action]};
+  const placement=`${plan.compositionKind==='structure'?'构图重心':'主体目标位置'}：画面${cx<.42?'左侧':cx>.58?'右侧':'中间'}${cy<.42?'偏上':cy>.58?'偏下':''}；按这个位置组织构图。`;
+  return {action,error,required,actual,goal,message:(plan.framing&&['left','right','up','down'].includes(action)?'保持当前距离，':'')+(plan.compositionKind==='structure'?messages[action].replaceAll('主体','选定区域'):messages[action]),placement,arrow:{back:'↔',left:'←',right:'→',up:'↑',down:'↓',hold:'✓'}[action]};
 }

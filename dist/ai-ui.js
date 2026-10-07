@@ -36,7 +36,7 @@ export function setupAI({video, getCamera, setBusy, makePhoto, beforeAnalyze=()=
     const data = await response.json();
     if (!response.ok) {
       if (response.status === 401) authenticated = false;
-      throw new Error(data.error || '请求失败，请重试。');
+      throw Object.assign(new Error(data.error || '请求失败，请重试。'),{status:response.status});
     }
     return data;
   }
