@@ -32,7 +32,7 @@ export function setupGuide({video,getCamera,ai,makePhoto,cancelCountdown}){
     $('guideMotion').textContent=motion.feedback(controller.coaching?.action);
     $('guideHint').textContent=starting?'正在加载本地图像追踪…':controller.message;
     const config=controller.config;
-    $('guideMetrics').textContent=config?`${(controller.base.sw/config.crop.sw).toFixed(2)}× 数字裁切 · ${Math.floor(config.crop.sw)} × ${Math.floor(config.crop.sh)}${config.crop.adjusted?' · 已适配画面':''} · ${filters.find(f=>f.id===config.filter.id).name}`:'';
+    $('guideMetrics').textContent=config?`${config.preserveScale?'保持原取景':(controller.base.sw/config.crop.sw).toFixed(2)+'× 数字裁切'} · ${Math.floor(config.crop.sw)} × ${Math.floor(config.crop.sh)}${config.crop.adjusted?' · 已适配画面':''} · ${filters.find(f=>f.id===config.filter.id).name}`:'';
     if(camera.mirrored)$('liveStatus').textContent='实时引导首版仅支持后置相机；自拍请使用普通快门。';
     else if(!supported)$('liveStatus').textContent='此浏览器不支持本地图像追踪，请使用普通快门。';
     else if(!starting&&controller.state==='IDLE')$('liveStatus').textContent=`点击上传一帧；本地跟踪，对准停稳后${$('autoCapture').checked?'自动拍一张':'按白色快门拍摄'}。AI 模式不使用倒计时。`;

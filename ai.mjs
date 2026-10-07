@@ -124,7 +124,7 @@ export function createAI({env = process.env, fetchImpl = fetch, now = Date.now, 
         body: JSON.stringify({
           systemInstruction: {parts: [{text: photographyPrompt(guide)}]},
           contents: [{role: 'user', parts: [
-            {text: `本轮场景：${scenes[body.scene]}。实际 JPEG ${dimensions.width}×${dimensions.height}。${guide?'照片比例：'+body.aspectRatio+'。使用实时规划合同 B2。':'使用单帧裁切合同 B1，遵守实际 JPEG 坐标。'}原始高分辨率和用户风格偏好未提供，采用保守回退；应用会独立执行画质预算。`},
+            {text: `本轮场景：${scenes[body.scene]}。实际 JPEG ${dimensions.width}×${dimensions.height}。${guide?'照片比例：'+body.aspectRatio+'。使用实时规划合同 B2；保持拍摄距离和当前主体大小，只调整镜头方向。framing 是主体期望位置，不是人脸位置。':'使用单帧裁切合同 B1，遵守实际 JPEG 坐标。'}原始高分辨率和用户风格偏好未提供，采用保守回退；应用会独立执行画质预算。`},
             {inlineData: {mimeType: 'image/jpeg', data: body.image}},
           ]}],
           generationConfig: {responseMimeType: 'application/json', responseJsonSchema: guide?guideSchema:schema, maxOutputTokens: 1500, thinkingConfig: {thinkingLevel: 'MINIMAL'}},

@@ -47,3 +47,10 @@ test('exact static whitelist serves modules and pinned runtime while protecting 
   const vendor=await fetch(`${f.base}/vendor/opencv-4.13.0.js`);assert.equal(vendor.status,200);assert.match(vendor.headers.get('content-type'),/javascript/);
   for(const file of ['/docs/LucyCam-实时AI拍摄技术实施书.md','/tests/guide-api.test.mjs','/vendor/unknown.js','/AGENTS.md'])assert.equal((await fetch(f.base+file)).status,404);
 });
+
+test('portrait provider receives free framing instructions and returns position without zoom',async t=>{
+  const free={...plan,subject:{label:'远处人物',box:{x:.46,y:.4,width:.08,height:.2}},framing:{subjectX:.7,subjectY:.65},crop:{centerX:.5,centerY:.5,scale:1}};
+  const f=await fixture(t,{fetchImpl:async()=>Response.json({candidates:[{finishReason:'STOP',content:{parts:[{text:JSON.stringify(free)}]}}]})});
+  await f.login();const r=await f.post('/api/guide-plan');assert.equal(r.status,200);const result=await r.json();assert.deepEqual(result.plan.framing,free.framing);assert.equal(result.plan.crop.scale,1);
+  const request=f.lastRequest();assert.ok(request.generationConfig.responseJsonSchema.required.includes('framing'));assert.match(request.contents[0].parts[0].text,/保持拍摄距离/);assert.equal(f.calls(),1);
+});

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {cropRect} from '../dist/photo-utils.js';
-import {identity,point,multiply,inverse,scaleMatrix,fullTransform,displayPoint,fromDisplay,referencePoint,alignmentDistance,lockCrop} from '../dist/guide-geometry.js';
+import {identity,point,multiply,inverse,scaleMatrix,fullTransform,displayPoint,fromDisplay,referencePoint,alignmentDistance,lockCrop,guidanceTarget} from '../dist/guide-geometry.js';
 import {estimateSimilarity} from '../dist/tracking-math.js';
 import {GuideController} from '../dist/guide-controller.js';
 import {validateGuidePlan} from '../dist/guide-plan.js';
@@ -128,4 +128,20 @@ test('temporary image loss retries the same reference and cannot shoot until fre
 test('unrecoverable reference gives a concrete next step and never automatically uploads or shoots',async()=>{
   const r=rig();r.frame();r.accept();for(let i=0;i<28;i++)r.frame({valid:false,recoverable:true});
   assert.equal(r.c.state,'LOST');assert.match(r.c.message,/缓慢转回/);assert.match(r.c.message,/按当前画面继续/);assert.equal(r.c.active(),false);assert.equal(r.captures(),0);
+});
+
+test('free framing places a distant subject at AI-selected positions without digital enlargement',()=>{
+  const base=cropRect(2400,3200,.75),p={...plan,subject:{label:'远处人物',box:{x:.46,y:.4,width:.08,height:.2}},crop:{centerX:.5,centerY:.5,scale:1}};
+  for(const [subjectX,subjectY] of [[.3,.6],[.7,.65],[.5,.5]]){
+    const free=validateGuidePlan({...p,framing:{subjectX,subjectY}}),transform=[1,0,(subjectX-.5)*2400,0,1,(subjectY-.5)*3200];
+    const target=guidanceTarget(base,free,transform);close(alignmentDistance(target,base),0);
+    const crop=lockCrop({width:2400,height:3200,ratio:.75,base,plan:free,transform});assert.equal(crop.sw,2400);assert.equal(crop.sh,3200);assert.equal(crop.sx,0);
+    const actual=point(transform,referencePoint(base,.5,.5)),display=displayPoint(actual,crop,300,400);close(display.x,subjectX*300);close(display.y,subjectY*400);
+  }
+});
+test('free framing rejects aggressive crop and impossible target placement',()=>{
+  const free={...plan,crop:{centerX:.5,centerY:.5,scale:1},framing:{subjectX:.7,subjectY:.6}};
+  assert.ok(validateGuidePlan(free));
+  for(const framing of [null,{}, {subjectX:.99,subjectY:.6},{subjectX:NaN,subjectY:.5}])assert.throws(()=>validateGuidePlan({...free,framing}));
+  assert.throws(()=>validateGuidePlan({...free,crop:{centerX:.5,centerY:.5,scale:.7}}));
 });

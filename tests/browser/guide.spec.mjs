@@ -162,3 +162,22 @@ test('granted motion data is only auxiliary and cannot capture or move the visua
   await expect(page.locator('#guideMotion')).toContainText('抬高');expect(await page.locator('#guideTarget').evaluate(el=>el.style.left)).toBe(before);await expect(page.locator('#photoDialog')).not.toBeVisible();
   await page.locator('#cancelGuide').click();await state(page,'IDLE');expect(app.calls).toBe(1);
 });
+
+test('portrait and scene selection have no fixed silhouette or prescribed person position',async({page,app})=>{
+  await open(page,app);await page.locator('[data-scene=portrait]').click();
+  await expect(page.locator('#frameGuide')).toHaveCount(0);await expect(page.locator('#frameLabel')).toHaveCount(0);await expect(page.locator('#guideText')).toContainText('保持当前距离');
+  await page.locator('#gridButton').click();await page.locator('#gridButton').click();await expect(page.locator('#frameGuide')).toHaveCount(0);
+  await page.setViewportSize({width:320,height:780});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:'qa-results/free-portrait-320.png'});
+});
+for(const subjectX of [.35,.65])test(`AI-selected portrait placement ${subjectX} preserves full field and subject size`,async({page,app})=>{
+  app.plan.crop={centerX:.5,centerY:.5,scale:1};app.plan.framing={subjectX,subjectY:.5};app.plan.filter={id:'original',strength:0};
+  await open(page,app);await page.locator('[data-scene=portrait]').click();await unlock(page);await page.locator('#guideButton').click();await state(page,'GUIDING');
+  await expect(page.locator('#liveStatus')).toContainText(subjectX>.5?'向左':'向右');await expect(page.locator('#liveStatus')).toContainText('保持当前距离');
+  const direction=subjectX>.5?1:-1;
+  await page.evaluate(async direction=>{for(let i=0;i<36;i++){window.cameraFixture.x+=direction*6;await new Promise(r=>setTimeout(r,80));}},direction);
+  await state(page,'REVIEW');
+  const photo=await page.locator('#photoPreview').evaluate(async img=>{await img.decode();const c=document.createElement('canvas');c.width=img.naturalWidth;c.height=img.naturalHeight;const ctx=c.getContext('2d');ctx.drawImage(img,0,0);const p=ctx.getImageData(0,0,c.width,c.height).data;let count=0,sum=0;for(let i=0;i<p.length;i+=4){if(p[i]>245&&p[i+1]<60&&p[i+2]<60){count++;sum+=(i/4)%c.width;}}return {width:c.width,height:c.height,x:sum/count/c.width,redArea:count};});
+  expect(photo.width).toBe(1440);expect(photo.height).toBe(1920);expect(photo.redArea).toBeGreaterThan(17000);expect(photo.redArea).toBeLessThan(27000);
+  expect(photo.x).toBeGreaterThan(subjectX-.075);expect(photo.x).toBeLessThan(subjectX+.075);expect(app.calls).toBe(1);
+});

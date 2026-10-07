@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {photographyPrompt,photoRules,promptHash} from '../photo-prompts.mjs';
-import {validateGuidePlan} from '../dist/guide-plan.js';
+import {validateGuidePlan,guideSchema} from '../dist/guide-plan.js';
 test('Gemini receives exact manual core and only the selected contract, without research appendix',async()=>{
   const source=(await readFile(new URL('../docs/LucyCam-照片分析Agent操作手册.md',import.meta.url),'utf8')).replaceAll('\r\n','\n');
   for(const [key,marker] of [['core','CORE'],['compose','COMPOSE'],['guide','GUIDE']])assert.equal(photoRules[key],source.split(`<!-- RUNTIME_${marker}_BEGIN -->`)[1].split(`<!-- RUNTIME_${marker}_END -->`)[0].trim());
@@ -19,4 +19,11 @@ test('manual failure placeholders are stop-only; filter promises match supported
   assert.throws(()=>validateGuidePlan({...failed,filter:{id:'original',strength:20}}));
   const mono={...failed,canGuide:true,filter:{id:'mono',strength:100}};
   assert.throws(()=>validateGuidePlan(mono,{scene:'portrait'}));assert.equal(validateGuidePlan(mono,{scene:'landscape'}).filter.strength,100);
+});
+
+test('live AI contract requests free subject placement at unchanged scale, not a fixed portrait crop',()=>{
+  assert.ok(guideSchema.required.includes('framing'));assert.equal(guideSchema.properties.crop.properties.scale.minimum,1);
+  assert.match(photoRules.guide,/保持当前拍摄距离、主体大小和焦段/);assert.match(photoRules.guide,/已经合适就保持原位置/);
+  assert.match(photoRules.core,/不能把portrait当成人脸特写/);assert.match(photoRules.guide,/framing/);
+  assert.ok(!photoRules.compose.includes('framing'));
 });

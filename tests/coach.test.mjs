@@ -45,3 +45,10 @@ test('diagonal direction hysteresis keeps text and arrow consistent but reverses
   const first=compositionStep(base,plan,[1,0,130,0,1,135],'right');assert.equal(first.action,'right');assert.equal(first.arrow,'→');assert.match(first.message,/向右/);
   const reversed=compositionStep(base,plan,[1,0,-150,0,1,0],'right');assert.equal(reversed.action,'left');assert.equal(reversed.arrow,'←');
 });
+
+test('framing mode preserves subject size and does not ask to step back just to fit a portrait template',()=>{
+  const p={subject:{box:{x:.01,y:.01,width:.98,height:.98}},crop:{centerX:.5,centerY:.5,scale:1},framing:{subjectX:.5,subjectY:.5}};
+  const step=compositionStep(base,p,[1,0,0,0,1,0]);assert.equal(step.action,'hold');assert.equal(step.goal.width,.98);assert.equal(step.goal.height,.98);
+  const distant={...p,subject:{box:{x:.45,y:.4,width:.1,height:.2}},framing:{subjectX:.65,subjectY:.65}};
+  const small=compositionStep(base,distant,[1,0,0,0,1,0]);assert.equal(small.goal.width,.1);assert.equal(small.goal.height,.2);assert.match(small.message,/保持当前距离/);assert.match(small.placement,/右侧偏下/);
+});

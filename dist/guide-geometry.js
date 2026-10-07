@@ -38,7 +38,19 @@ export function alignmentDistance(p,crop) {
 export function boxCorners(base,box) {
   return [[box.x,box.y],[box.x+box.width,box.y],[box.x+box.width,box.y+box.height],[box.x,box.y+box.height]].map(([x,y])=>referencePoint(base,x,y));
 }
+// A subject-placement plan moves the camera; it must not recenter the person
+// with a digital crop afterwards. Position is measured in the current viewport.
+export function guidanceTarget(base,plan,transform){
+  if(!plan.framing)return point(transform,referencePoint(base,plan.crop.centerX,plan.crop.centerY));
+  const b=plan.subject.box,subject=point(transform,referencePoint(base,b.x+b.width/2,b.y+b.height/2));
+  return {x:subject.x+(.5-plan.framing.subjectX)*base.sw,y:subject.y+(.5-plan.framing.subjectY)*base.sh};
+}
 export function lockCrop({width,height,ratio,base,plan,transform}) {
+  if(plan.framing){
+    const crop=cropRect(width,height,ratio),subject=boxCorners(base,plan.subject.box).map(p=>point(transform,p));
+    if(subject.some(p=>p.x<crop.sx-1e-5||p.y<crop.sy-1e-5||p.x>crop.sx+crop.sw+1e-5||p.y>crop.sy+crop.sh+1e-5))throw new Error('请按方向提示转动镜头，把主体完整收进当前画面。');
+    return Object.freeze({...crop,adjusted:false});
+  }
   const {centerX,centerY,scale}=plan.crop;
   const center=point(transform,referencePoint(base,centerX,centerY));
   const corners=boxCorners(base,{x:centerX-scale/2,y:centerY-scale/2,width:scale,height:scale}).map(p=>point(transform,p));

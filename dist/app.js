@@ -6,11 +6,11 @@ const video=$('video');
 let guide=null;
 const state={stream:null,facing:'environment',mirrored:false,ratio:0,timer:0,filter:'original',strength:70,scene:'portrait',grid:true,busy:false,opening:false,request:0,countToken:0,photo:null};
 const ratios=[{label:'3:4',value:3/4},{label:'1:1',value:1},{label:'9:16',value:9/16}];
-const tips={portrait:'让眼睛靠近上方网格线，头顶留一点空间。',travel:'人物放在右侧参考框，左边留给风景；尽量不要切到脚。',landscape:'让地平线靠近下方网格线；天空不出彩时，也可以放在上方。'};
+const tips={portrait:'保持当前距离，AI 会结合人物、背景和留白建议镜头方向，不套用固定人像框。',travel:'保留人物与景色的关系，AI 根据当前画面决定主体位置。',landscape:'AI 根据当前画面的线条、地平线和留白建议构图。'};
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 function tell(message){$('status').textContent=message;}
 function updateControls(){const ready=!!state.stream&&video.readyState>=2&&!state.busy&&!state.opening;$('shutter').disabled=!ready;$('flipButton').disabled=!ready;$('importButton').disabled=state.busy||state.opening;$('importStartButton').disabled=state.busy||state.opening;$('startButton').disabled=state.opening||state.busy;$('ratioButton').disabled=state.busy;$('timerButton').disabled=state.busy;ai.update();guide?.update();}
-function releaseStream(){guide?.cancel();if(state.stream){state.stream.getTracks().forEach(t=>t.stop());state.stream=null;}video.srcObject=null;video.classList.remove('mirrored');$('frameGuide').hidden=true;$('frameLabel').hidden=true;$('resolution').textContent='';updateControls();}
+function releaseStream(){guide?.cancel();if(state.stream){state.stream.getTracks().forEach(t=>t.stop());state.stream=null;}video.srcObject=null;video.classList.remove('mirrored');$('resolution').textContent='';updateControls();}
 function cancelCountdown(){state.countToken++;$('countdown').hidden=true;}
 function showStart(message='点击继续使用相机。'){$('startPanel').hidden=false;$('startMessage').textContent=message;$('cameraStatus').textContent='相机未开启';$('startButton').textContent='开启相机';}
 async function startCamera(){
@@ -35,8 +35,8 @@ async function startCamera(){
   finally{if(request===state.request){state.opening=false;$('startButton').textContent='开启相机';updateControls();}}
 }
 function updateGuide(){
-  $('grid').hidden=!state.grid;$('frameGuide').hidden=!state.grid||!state.stream;$('frameLabel').hidden=!state.grid||!state.stream;
-  $('frameGuide').className=`frame-guide ${state.scene}`;$('guideText').textContent=tips[state.scene];
+  $('grid').hidden=!state.grid;
+  $('guideText').textContent=tips[state.scene];
   $('sceneTabs').querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.scene===state.scene)));
 }
 function setFilter(id){guide?.cancel();if(!filters.some(f=>f.id===id))throw new Error('不存在的滤镜');state.filter=id;updateFilter();}

@@ -12,12 +12,19 @@ export function validateGuidePlan(p,{scene}={}){
   if((f.id==='original'&&f.strength!==0)||(scene==='portrait'&&f.strength>40))bad();
   if(!p.canGuide&&(c.centerX!==.5||c.centerY!==.5||c.scale!==1||f.id!=='original'||f.strength!==0))bad();
   if(p.canGuide&&(b.x<c.centerX-c.scale/2-geometryTolerance||b.y<c.centerY-c.scale/2-geometryTolerance||b.x+b.width>c.centerX+c.scale/2+geometryTolerance||b.y+b.height>c.centerY+c.scale/2+geometryTolerance))bad();
-  return {canGuide:p.canGuide,subject:{label:p.subject.label.trim(),box:{x:b.x,y:b.y,width:b.width,height:b.height}},crop:{centerX:c.centerX,centerY:c.centerY,scale:c.scale},filter:{id:f.id,strength:f.strength},advice:p.advice.trim()};
+  const framing=p.framing;
+  if(framing!==undefined){
+    if(!framing||typeof framing!=='object')bad();
+    if(!Number.isFinite(framing.subjectX)||!Number.isFinite(framing.subjectY)||framing.subjectX<b.width/2-geometryTolerance||framing.subjectX>1-b.width/2+geometryTolerance||framing.subjectY<b.height/2-geometryTolerance||framing.subjectY>1-b.height/2+geometryTolerance)bad();
+    if(c.centerX!==.5||c.centerY!==.5||c.scale!==1)bad();
+  }
+  return {...(framing?{framing:{subjectX:framing.subjectX,subjectY:framing.subjectY}}:{}),canGuide:p.canGuide,subject:{label:p.subject.label.trim(),box:{x:b.x,y:b.y,width:b.width,height:b.height}},crop:{centerX:c.centerX,centerY:c.centerY,scale:c.scale},filter:{id:f.id,strength:f.strength},advice:p.advice.trim()};
 }
 const number={type:'number'};
-export const guideSchema={type:'object',additionalProperties:false,required:['canGuide','subject','crop','filter','advice'],properties:{
+export const guideSchema={type:'object',additionalProperties:false,required:['canGuide','subject','framing','crop','filter','advice'],properties:{
   canGuide:{type:'boolean'},advice:{type:'string',maxLength:300},
   subject:{type:'object',additionalProperties:false,required:['label','box'],properties:{label:{type:'string',maxLength:100},box:{type:'object',additionalProperties:false,required:['x','y','width','height'],properties:{x:number,y:number,width:number,height:number}}}},
-  crop:{type:'object',additionalProperties:false,required:['centerX','centerY','scale'],properties:{centerX:number,centerY:number,scale:{type:'number',minimum:.5,maximum:1}}},
+  framing:{type:'object',additionalProperties:false,required:['subjectX','subjectY'],properties:{subjectX:{type:'number',minimum:0,maximum:1},subjectY:{type:'number',minimum:0,maximum:1}}},
+  crop:{type:'object',additionalProperties:false,required:['centerX','centerY','scale'],properties:{centerX:{type:'number',minimum:.5,maximum:.5},centerY:{type:'number',minimum:.5,maximum:.5},scale:{type:'number',minimum:1,maximum:1}}},
   filter:{type:'object',additionalProperties:false,required:['id','strength'],properties:{id:{type:'string',enum:filterIds},strength:{type:'integer',minimum:0,maximum:100}}}
 }};

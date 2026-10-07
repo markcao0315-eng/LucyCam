@@ -1,7 +1,7 @@
 import {compositionStep} from './guide-coach.js';
 import {cropRect} from './photo-utils.js';
 import {validateGuidePlan} from './guide-plan.js';
-import {point,referencePoint,alignmentDistance,lockCrop,fullTransform,boxCorners,GUIDE_TUNING,previewCrop} from './guide-geometry.js';
+import {point,alignmentDistance,lockCrop,fullTransform,boxCorners,GUIDE_TUNING,previewCrop,guidanceTarget} from './guide-geometry.js';
 
 export class GuideController {
   constructor({now=()=>performance.now(),change=()=>{},capture=async()=>{},stop=()=>{}}={}){
@@ -26,7 +26,7 @@ export class GuideController {
     if(data.schemaVersion!==1||data.referenceId!==this.referenceId){this.lose('参考画面不匹配，请重新分析。');return false;}
     try{this.plan=validateGuidePlan(data.plan,{scene:this.scene});}catch(error){this.lose(error.message);return false;}
     if(!this.plan.canGuide){this.lose(this.plan.advice);return false;}
-    if(this.latest&&this.transform){this.target=point(this.transform,referencePoint(this.base,this.plan.crop.centerX,this.plan.crop.centerY));this.updateCoaching();}
+    if(this.latest&&this.transform){this.target=guidanceTarget(this.base,this.plan,this.transform);this.updateCoaching();}
     this.emit(this.coaching?.required?'CORRECTING':'GUIDING',this.coaching?.message||'轻转手机，让目标圈靠近中心准星。');return true;
   }
   frame(frame){
@@ -54,7 +54,7 @@ export class GuideController {
       this.config=null;this.lockTransform=null;this.stableSince=null;this.coaching=null;this.target=null;this.emit('GUIDING','请先停下，让主体和周围背景保持在画面内；正在确认位置。');return;
     }
     this.unsafeSince=null;
-    this.target=point(this.transform,referencePoint(this.base,this.plan.crop.centerX,this.plan.crop.centerY));
+    this.target=guidanceTarget(this.base,this.plan,this.transform);
     this.updateCoaching();
     const distance=alignmentDistance(this.target,this.currentCrop(frame.time)),still=frame.velocity<GUIDE_TUNING.maxVelocity;
     const continuous=previous&&frame.time-previous.time<=250;
@@ -80,8 +80,8 @@ export class GuideController {
       const crop=lockCrop({width:this.width,height:this.height,ratio:this.ratio,base:this.base,plan:this.plan,transform:this.transform});
       if(alignmentDistance(this.target,crop)>GUIDE_TUNING.radius)throw new Error('请微调镜头方向，让主体靠近绿色参考框。');
       this.config=Object.freeze({runId:this.runId,sourceWidth:this.width,sourceHeight:this.height,crop,mirrored:false,
-        filter:Object.freeze({...this.plan.filter}),aspectRatio:this.aspectRatio,lockedFrameId:frame.frameId});
-      this.lockTransform=[...this.transform];this.zoomStarted=frame.time;this.stableSince=null;this.emit('ZOOMING',crop.adjusted?'已适配当前画面，正在调整色彩…':'正在调整构图和色彩…');
+        filter:Object.freeze({...this.plan.filter}),aspectRatio:this.aspectRatio,preserveScale:!!this.plan.framing,lockedFrameId:frame.frameId});
+      this.lockTransform=[...this.transform];this.zoomStarted=frame.time;this.stableSince=null;this.emit('ZOOMING',this.plan.framing?'构图已对准，保持当前距离，正在调整色彩…':crop.adjusted?'已适配当前画面，正在调整色彩…':'正在调整构图和色彩…');
     }catch{this.config=null;this.stableSince=null;this.emit('CORRECTING',this.coaching.action==='hold'?'稍往后退，让主体与画面边缘留一点空隙，再保持镜头方向。':this.coaching.message);}
   }
   updateCoaching(){
