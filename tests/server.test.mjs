@@ -18,7 +18,7 @@ test('Render server serves the camera, reports truthful AI status, and isolates 
     const home = await fetch(base + '/');
     assert.equal(home.status, 200);
     assert.match(await home.text(), /LucyCam/);
-    assert.equal(home.headers.get('permissions-policy'), 'camera=(self), microphone=()');
+    assert.equal(home.headers.get('permissions-policy'), 'camera=(self), microphone=(), accelerometer=(self), gyroscope=(self)');
     const module = await fetch(base + '/app.js');
     assert.match(module.headers.get('content-type'), /javascript/);
     const head = await fetch(base + '/styles.css', {method: 'HEAD'});

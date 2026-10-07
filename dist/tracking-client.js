@@ -7,7 +7,7 @@ export class TrackingClient {
   async ready(){
     await new Promise((resolve,reject)=>{
       this.rejectReady=reject;
-      this.timeout=setTimeout(()=>reject(new Error('追踪组件加载超时，请重试或手动拍摄。')),12000);
+      this.timeout=setTimeout(()=>reject(new Error('追踪组件加载超时。请保持当前取景，检查网络后再点「按当前画面继续」。')),12000);
       this.worker.onerror=()=>{clearTimeout(this.timeout);const e=new Error('追踪组件加载失败');reject(e);if(!this.stopped)this.onError(e.message);};
       this.worker.onmessage=({data})=>{
         if(this.stopped)return;

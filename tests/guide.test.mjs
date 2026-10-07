@@ -114,9 +114,18 @@ test('full-frame suggestion completes once after a slight camera rotation',async
   const a=.005,c=Math.cos(a),s=Math.sin(a),transform=[c,-s,180-c*180+s*240,s,c,240-s*180-c*240];
   for(let i=0;i<25;i++)r.frame({transform});await Promise.resolve();assert.equal(r.captures(),1);assert.equal(r.c.config.crop.adjusted,true);r.c.cancel();r.release();
 });
-test('impossible subject containment exits once to manual; later frames cannot restart or capture',async()=>{
+test('oversized subject receives live backing-up guidance and continues to one automatic capture',async()=>{
   const r=rig();r.frame();r.c.accept(r.c.runId,{schemaVersion:1,referenceId:'test-reference',plan:{...plan,subject:{label:'全景',box:{x:0,y:0,width:1,height:1}},crop:{centerX:.5,centerY:.5,scale:1}}});
-  for(let i=0;i<25;i++)r.frame({transform:[1,0,2,0,1,0]});await Promise.resolve();
-  assert.equal(r.c.state,'MANUAL');assert.equal(r.c.active(),false);assert.equal(r.c.abort.signal.aborted,true);assert.equal(r.c.config,null);assert.equal(r.captures(),0);
-  assert.equal(r.states.filter(s=>s==='MANUAL').length,1);assert.match(r.c.message,/白色快门/);
+  for(let i=0;i<5;i++)r.frame();assert.equal(r.c.state,'CORRECTING');assert.equal(r.c.active(),true);assert.match(r.c.message,/后退/);assert.equal(r.captures(),0);
+  for(let i=1;i<=20;i++){const scale=1-i*.009;r.frame({transform:[scale,0,180*(1-scale),0,scale,240*(1-scale)]});}
+  for(let i=0;i<25;i++)r.frame({transform:[.82,0,180*.18,0,.82,240*.18]});await Promise.resolve();assert.equal(r.captures(),1);r.c.cancel();r.release();
+});
+test('temporary image loss retries the same reference and cannot shoot until fresh stability returns',async()=>{
+  const r=rig();r.frame();r.accept();r.frame({valid:false,recoverable:true});assert.equal(r.c.state,'RECOVERING');assert.equal(r.c.target,null);
+  for(let i=0;i<8;i++)r.frame({valid:false,recoverable:true});await Promise.resolve();assert.equal(r.captures(),0);
+  r.frame();assert.notEqual(r.c.state,'CAPTURING');for(let i=0;i<25;i++)r.frame();await Promise.resolve();assert.equal(r.captures(),1);r.c.cancel();r.release();
+});
+test('unrecoverable reference gives a concrete next step and never automatically uploads or shoots',async()=>{
+  const r=rig();r.frame();r.accept();for(let i=0;i<28;i++)r.frame({valid:false,recoverable:true});
+  assert.equal(r.c.state,'LOST');assert.match(r.c.message,/缓慢转回/);assert.match(r.c.message,/按当前画面继续/);assert.equal(r.c.active(),false);assert.equal(r.captures(),0);
 });

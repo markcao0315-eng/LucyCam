@@ -48,7 +48,7 @@ export function lockCrop({width,height,ratio,base,plan,transform}) {
   const subject=boxCorners(base,plan.subject.box).map(p=>point(transform,p)),epsilon=1e-5;
   const minX=Math.min(...subject.map(p=>p.x)),maxX=Math.max(...subject.map(p=>p.x));
   const minY=Math.min(...subject.map(p=>p.y)),maxY=Math.max(...subject.map(p=>p.y));
-  const unavailable=()=>{throw new Error('当前画面无法完整保留主体，自动拍摄已停止。可按白色快门手动拍摄。');};
+  const unavailable=()=>{throw new Error('请按方向提示调整，让主体完整进入画面并留出边缘。');};
   if(![desired,minX,maxX,minY,maxY].every(Number.isFinite)||minX < -epsilon||minY < -epsilon||maxX>width+epsilon||maxY>height+epsilon)unavailable();
   // The old reference rectangle may rotate outside the current sensor. Its empty
   // corners are preferences, not required content; the tracked subject is required.

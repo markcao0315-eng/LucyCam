@@ -123,12 +123,42 @@ for(const scale of [.98,1])test(`near-full crop ${scale} survives real pixel til
   expect((await page.evaluate(()=>window.guideMessages)).join(' ')).not.toMatch(/无法容纳|重新分析|裁切越界/);
   expect(app.calls).toBe(1);
 });
-test('uncontainable tracked subject ends in manual mode and the white shutter still works without another AI call',async({page,app})=>{
+test('clipped subject gets live direction and automatically captures after correction without reanalysis',async({page,app})=>{
   app.plan.crop.scale=1;app.plan.subject.box={x:0,y:.3,width:.8,height:.4};app.delay=1200;
   await open(page,app);await unlock(page);await page.locator('#guideButton').click();await state(page,'ANALYZING');
   await page.evaluate(()=>{window.cameraFixture.x=-12;});
-  await state(page,'MANUAL');await expect(page.locator('#liveStatus')).toContainText('白色快门');await expect(page.locator('#guideOverlay')).toBeHidden();
-  await page.waitForTimeout(700);await state(page,'MANUAL');await expect(page.locator('#photoDialog')).not.toBeVisible();
-  await page.locator('#shutter').click();await expect(page.locator('#photoDialog')).toBeVisible();expect(app.calls).toBe(1);
-  await page.screenshot({path:'qa-results/manual-fallback-390.png'});
+  await state(page,'CORRECTING');await expect(page.locator('#liveStatus')).toContainText('向左');await expect(page.locator('#guideGoal')).toBeVisible();
+  await page.screenshot({path:'qa-results/coaching-left-390.png'});
+  await page.evaluate(()=>{window.cameraFixture.x=8;});await state(page,'REVIEW');expect(app.calls).toBe(1);
+});
+test('oversized subject gets backing-up guidance, measured improvement and then auto capture',async({page,app})=>{
+  app.plan.crop.scale=1;app.plan.subject.box={x:.02,y:.3,width:.96,height:.4};
+  await page.setViewportSize({width:320,height:780});await open(page,app);await unlock(page);await page.locator('#guideButton').click();await state(page,'CORRECTING');
+  await expect(page.locator('#liveStatus')).toContainText('后退');await expect(page.locator('#guideGoal')).toBeVisible();
+  await page.screenshot({path:'qa-results/coaching-back-320.png'});
+  await page.evaluate(async()=>{for(let i=0;i<12;i++){window.cameraFixture.zoom-=.006;await new Promise(r=>setTimeout(r,100));}});
+  await expect(page.locator('#liveStatus')).toContainText('方向对了');
+  await page.evaluate(async()=>{for(let i=0;i<10;i++){window.cameraFixture.zoom-=.006;await new Promise(r=>setTimeout(r,100));}});
+  await state(page,'REVIEW');expect(app.calls).toBe(1);
+});
+test('brief occlusion recovers actual image tracking with no new AI upload',async({page,app})=>{
+  app.plan.crop.centerX=.6;await open(page,app);await unlock(page);await page.locator('#guideButton').click();await state(page,'GUIDING');
+  await page.evaluate(()=>{window.cameraFixture.wall=true;});await state(page,'RECOVERING');await expect(page.locator('#guideOverlay')).toBeHidden();await expect(page.locator('#photoDialog')).not.toBeVisible();
+  await page.evaluate(()=>{window.cameraFixture.wall=false;});await state(page,'GUIDING');
+  await page.evaluate(async()=>{for(let i=0;i<12;i++){window.cameraFixture.x-=6;await new Promise(r=>setTimeout(r,100));}});
+  await state(page,'REVIEW');expect(app.calls).toBe(1);
+});
+test('denied motion permission preserves image-only guidance and capture',async({page,app})=>{
+  await page.addInitScript(()=>{Object.defineProperty(window,'DeviceMotionEvent',{configurable:true,value:{requestPermission:async()=> 'denied'}});});
+  await open(page,app);await page.locator('#motionButton').click();await expect(page.locator('#motionStatus')).toContainText('未获得');
+  await unlock(page);await page.locator('#guideButton').click();await state(page,'REVIEW');expect(app.calls).toBe(1);
+});
+test('granted motion data is only auxiliary and cannot capture or move the visual target',async({page,app})=>{
+  app.plan.crop.centerX=.6;
+  await page.addInitScript(()=>{Object.defineProperty(window,'DeviceMotionEvent',{configurable:true,value:{requestPermission:async()=> 'granted'}});});
+  await open(page,app);await page.locator('#motionButton').click();await unlock(page);await page.locator('#guideButton').click();await state(page,'GUIDING');
+  const before=await page.locator('#guideTarget').evaluate(el=>el.style.left);
+  await page.evaluate(()=>{const e=new Event('devicemotion');Object.defineProperty(e,'rotationRate',{value:{alpha:0,beta:25,gamma:0}});Object.defineProperty(e,'acceleration',{value:{x:0,y:0,z:0}});window.dispatchEvent(e);});
+  await expect(page.locator('#guideMotion')).toContainText('抬高');expect(await page.locator('#guideTarget').evaluate(el=>el.style.left)).toBe(before);await expect(page.locator('#photoDialog')).not.toBeVisible();
+  await page.locator('#cancelGuide').click();await state(page,'IDLE');expect(app.calls).toBe(1);
 });

@@ -30,7 +30,7 @@ export class ImageTracker {
       return {valid:false,initial:true,transform:this.transform,features:this.points.rows};
     }
     const dt=(time-this.time)/1000;
-    if(width!==this.previous.cols||height!==this.previous.rows||dt<=0||dt>.25||this.points.rows<20){gray.delete();this.failed=true;return {valid:false,reason:'画面停顿或特征不足，请重新分析。'};}
+    if(width!==this.previous.cols||height!==this.previous.rows||dt<=0||dt>2.5||this.points.rows<20){gray.delete();this.failed=true;return {valid:false,reason:'画面停顿或特征不足，请重新分析。'};}
     const next=new cv.Mat(),back=new cv.Mat(),status=new cv.Mat(),backStatus=new cv.Mat(),err=new cv.Mat(),backErr=new cv.Mat();
     try{
       cv.calcOpticalFlowPyrLK(this.previous,gray,this.points,next,status,err,new cv.Size(21,21),3);
@@ -47,7 +47,7 @@ export class ImageTracker {
       const scale=model?Math.hypot(model.matrix[0],model.matrix[3]):0;
       const m=model?.matrix,scaleY=m?Math.hypot(m[1],m[4]):0;
       const valid=!!model&&model.inliers.length>=20&&model.ratio>=.65&&model.residual<=2.5&&space>=.375&&scale>.92&&scale<1.08&&scaleY>.92&&scaleY<1.08&&m[0]*m[4]-m[1]*m[3]>0&&Math.abs(m[0]*m[1]+m[3]*m[4])<.12&&Math.abs(Math.atan2(m[3],m[0]))<.1;
-      if(!valid){this.failed=true;gray.delete();return {valid:false,reason:'暂时无法稳定跟踪，可手动拍摄。',inliers:model?.inliers.length||0,coverage:space};}
+      if(!valid){gray.delete();return {valid:false,recoverable:true,reason:'请缓慢转回刚才的方向，正在找回原画面。',inliers:model?.inliers.length||0,coverage:space};}
       const before=this.transform;this.transform=multiply(model.matrix,this.transform);
       const referenceBackground=background.filter(p=>p.anchor.trusted);
       const referenceResidual=median(referenceBackground.map(p=>residual(this.transform,{...p.anchor,u:p.u,v:p.v})));

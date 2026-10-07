@@ -12,7 +12,7 @@ const assets = new Map([
   ['/app.js', 'text/javascript; charset=utf-8'],
   ['/ai-ui.js', 'text/javascript; charset=utf-8'],
   ['/photo-utils.js', 'text/javascript; charset=utf-8'],
-  ...['guide-geometry','tracking-math','tracking-core','tracking-worker','tracking-client','guide-plan','guide-controller','camera-renderer','guide-ui'].map(name=>[`/${name}.js`,'text/javascript; charset=utf-8']),
+  ...['guide-coach','motion-sensor','guide-geometry','tracking-math','tracking-core','tracking-worker','tracking-client','guide-plan','guide-controller','camera-renderer','guide-ui'].map(name=>[`/${name}.js`,'text/javascript; charset=utf-8']),
   ['/vendor/opencv-4.13.0.js','text/javascript; charset=utf-8'],
   ['/styles.css', 'text/css; charset=utf-8'],
   ['/manifest.webmanifest', 'application/manifest+json'],
@@ -30,7 +30,7 @@ export function createAppServer(options = {}) {
   const server = http.createServer(async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'same-origin');
-    res.setHeader('Permissions-Policy', 'camera=(self), microphone=()');
+    res.setHeader('Permissions-Policy', 'camera=(self), microphone=(), accelerometer=(self), gyroscope=(self)');
     res.setHeader('Cache-Control', 'no-store');
     const head = req.method === 'HEAD';
     let pathname;
@@ -52,7 +52,7 @@ export function createAppServer(options = {}) {
     if (pathname === '/api/status') {
       return json(res, 200, {
         app: 'LucyCam',
-        version: '0.4.2',
+        version: '0.5.0',
         aiRulesVersion: promptVersion,
         features: {camera: true, aiComposition: ai.ready, liveTracking: (options.env||process.env).LIVE_GUIDANCE_ENABLED==='true'},
         authenticated: ai.ready && ai.authenticated(req),

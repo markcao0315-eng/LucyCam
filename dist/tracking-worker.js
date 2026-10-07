@@ -15,7 +15,7 @@ const ready=(async()=>{
   runtime=cv;
   postMessage({type:'ready',build:cv.getBuildInformation().split('\n').slice(0,4).join('\n')});
 })();
-ready.catch(()=>postMessage({type:'error',reason:'图像追踪组件加载失败，普通相机仍可使用。'}));
+ready.catch(()=>postMessage({type:'error',reason:'图像追踪组件加载失败。请检查网络，保持当前取景，再点「按当前画面继续」。'}));
 self.onmessage=async({data})=>{
   try{
     await ready;
@@ -26,5 +26,5 @@ self.onmessage=async({data})=>{
     const start=performance.now();
     const result=tracker.process(data);
     postMessage({...result,type:'result',runId,frameId:data.frameId,time:data.time,mediaTime:data.mediaTime,width:data.width,height:data.height,processingMs:performance.now()-start,heapBytes:runtime.HEAPU8?.buffer.byteLength});
-  }catch{tracker?.dispose();postMessage({type:'error',runId,reason:'追踪计算失败，请手动拍摄。'});}
+  }catch{tracker?.dispose();postMessage({type:'error',runId,reason:'追踪计算失败。请让主体完整进入画面并停稳，再点「按当前画面继续」。'});}
 };

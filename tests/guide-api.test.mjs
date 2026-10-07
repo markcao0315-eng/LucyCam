@@ -43,7 +43,7 @@ test('invalid provider geometry is a safe error and never silently clamped',asyn
 });
 test('exact static whitelist serves modules and pinned runtime while protecting documents',async t=>{
   const f=await fixture(t);
-  for(const file of ['guide-ui','guide-controller','guide-geometry','camera-renderer','tracking-worker','tracking-client','tracking-core','tracking-math','guide-plan']){const r=await fetch(`${f.base}/${file}.js`);assert.equal(r.status,200);assert.match(r.headers.get('content-type'),/javascript/);}
+  for(const file of ['guide-coach','motion-sensor','guide-ui','guide-controller','guide-geometry','camera-renderer','tracking-worker','tracking-client','tracking-core','tracking-math','guide-plan']){const r=await fetch(`${f.base}/${file}.js`);assert.equal(r.status,200);assert.match(r.headers.get('content-type'),/javascript/);}
   const vendor=await fetch(`${f.base}/vendor/opencv-4.13.0.js`);assert.equal(vendor.status,200);assert.match(vendor.headers.get('content-type'),/javascript/);
   for(const file of ['/docs/LucyCam-实时AI拍摄技术实施书.md','/tests/guide-api.test.mjs','/vendor/unknown.js','/AGENTS.md'])assert.equal((await fetch(f.base+file)).status,404);
 });
