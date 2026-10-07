@@ -30,7 +30,7 @@
 
 Render 自动设置 `PORT`；程序监听 `0.0.0.0`，运行版本由 `.node-version` 指定为 Node 24。
 
-部署成功后打开 Render 实际返回的 HTTPS 网址。`/healthz` 应返回 `{"status":"ok"}`，`/api/status` 显示版本 `0.3.0`。`aiComposition: true` 仅表示配置齐全，不代表已经验证 Google Key 的有效性。
+部署成功后打开 Render 实际返回的 HTTPS 网址。`/healthz` 应返回 `{"status":"ok"}`，`/api/status` 显示版本 `0.3.1`。`aiComposition: true` 仅表示配置齐全，不代表已经验证 Google Key 的有效性。
 
 GitHub 私有仓库只控制源码访问；Render 的 Web Service 网址默认可公开访问。相机页面可公开使用，收费 AI 接口要求家庭访问口令。
 

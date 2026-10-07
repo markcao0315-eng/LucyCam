@@ -49,10 +49,11 @@ export function createAppServer(options = {}) {
     if (pathname === '/api/status') {
       return json(res, 200, {
         app: 'LucyCam',
-        version: '0.3.0',
+        version: '0.3.1',
         features: {camera: true, aiComposition: ai.ready, liveTracking: false},
         authenticated: ai.ready && ai.authenticated(req),
-        message: ai.ready ? 'AI snapshot composition is configured.' : 'Configure GEMINI_API_KEY and LUCYCAM_ACCESS_CODE (at least 12 characters) in Render.',
+        configuration: {issues: ai.configurationIssues},
+        message: ai.ready ? 'AI 配置已就绪。' : ai.configurationIssues.map(issue => issue.message).join(' '),
       }, head);
     }
     if (pathname === '/') pathname = '/index.html';

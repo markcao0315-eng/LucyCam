@@ -119,3 +119,24 @@ test('composition validation preserves geometry and rejects malformed suggestion
   assert.deepEqual(validateComposition(composition), composition);
   for (const value of [null, {...composition, scale: .1}, {...composition, centerX: '0.5'}, {...composition, centerY: 1}, {...composition, advice: ''}]) assert.throws(() => validateComposition(value));
 });
+
+test('configuration diagnostics distinguish missing key, short code and invalid model without exposing values', async t => {
+  for (const [env, expected] of [
+    [{GEMINI_API_KEY: ''}, ['MISSING_API_KEY']],
+    [{LUCYCAM_ACCESS_CODE: ''}, ['MISSING_ACCESS_CODE']],
+    [{LUCYCAM_ACCESS_CODE: 'short-code'}, ['ACCESS_CODE_TOO_SHORT']],
+    [{GEMINI_MODEL: 'private-invalid-model'}, ['INVALID_MODEL']],
+    [{}, []],
+  ]) {
+    const f = await fixture(t, {env});
+    const response = await fetch(f.base + '/api/status');
+    const text = await response.text(), status = JSON.parse(text);
+    assert.deepEqual(status.configuration.issues.map(issue => issue.code), expected);
+    assert.equal(status.features.aiComposition, expected.length === 0);
+    assert.ok(!text.includes('test-only-key'));
+    assert.ok(!text.includes('test-only-access-code'));
+    assert.ok(!text.includes('short-code'));
+    assert.ok(!text.includes('private-invalid-model'));
+    assert.equal(f.calls.length, 0);
+  }
+});

@@ -2,22 +2,30 @@ import {cropRect, outputSize} from './photo-utils.js';
 const $ = id => document.getElementById(id);
 
 export function setupAI({video, getCamera, setBusy, makePhoto}) {
-  let configured = false, authenticated = false, loading = false, frame = null, result = null, controller = null, generation = 0;
+  let configured = false, authenticated = false, loading = false, refreshing = false, frame = null, result = null, controller = null, generation = 0;
   const message = text => {$('aiStatus').textContent = text;};
   function update() {
     const camera = getCamera();
     $('aiButton').disabled = !configured || !camera.ready || loading;
     $('aiButton').textContent = loading ? '正在分析…' : 'AI 构图';
+    $('refreshAI').hidden = configured;
+    $('refreshAI').disabled = refreshing || loading;
   }
   async function refresh() {
+    if (refreshing || loading) return;
+    refreshing = true;
+    $('refreshAI').disabled = true;
     try {
-      const response = await fetch('/api/status');
+      const response = await fetch('/api/status', {cache: 'no-store', signal: AbortSignal.timeout(15000)});
       if (!response.ok) throw new Error();
       const status = await response.json();
       configured = status.features?.aiComposition === true;
       authenticated = status.authenticated === true;
-      message(configured ? '点击上传当前一帧，由 Google AI 分析构图。' : 'AI 尚未配置。普通拍照可正常使用。');
-    } catch {message('暂时无法连接 AI 后台，普通拍照仍可使用。');}
+      const issues = status.configuration?.issues;
+      message(configured ? '点击上传当前一帧，由 Google AI 分析构图。' :
+        Array.isArray(issues) && issues.length ? issues.map(issue => issue.message).join(' ') : 'AI 尚未配置。普通拍照可正常使用。');
+    } catch {configured = false; message('暂时无法连接 AI 后台，普通拍照仍可使用。请点击重新检查。');}
+    refreshing = false;
     update();
   }
   async function request(path, body, signal) {
@@ -121,6 +129,9 @@ export function setupAI({video, getCamera, setBusy, makePhoto}) {
   }
   document.addEventListener('visibilitychange', () => {if (document.hidden) cancel();});
   window.addEventListener('pagehide', cancel);
+  $('refreshAI').onclick = refresh;
+  window.addEventListener('focus', () => {if (!configured) refresh();});
+  window.addEventListener('pageshow', () => {if (!configured) refresh();});
   refresh();
   return {update, available: () => configured};
 }

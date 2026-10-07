@@ -57,7 +57,13 @@ export function createAI({env = process.env, fetchImpl = fetch, now = Date.now, 
   const key = env.GEMINI_API_KEY?.trim();
   const code = env.LUCYCAM_ACCESS_CODE || '';
   const model = env.GEMINI_MODEL?.trim() || 'gemini-3.1-flash-lite';
-  const ready = !!key && code.length >= 12 && /^gemini-[a-z0-9.-]+$/.test(model);
+  // Report only validation outcomes, never credentials or their exact lengths.
+  const configurationIssues = [];
+  if (!key) configurationIssues.push({code: 'MISSING_API_KEY', message: '服务尚未读到 GEMINI_API_KEY，请确认变量已保存并部署。'});
+  if (!code) configurationIssues.push({code: 'MISSING_ACCESS_CODE', message: '服务尚未读到 LUCYCAM_ACCESS_CODE，请设置家庭访问口令并部署。'});
+  else if (code.length < 12) configurationIssues.push({code: 'ACCESS_CODE_TOO_SHORT', message: '家庭访问口令不足 12 位。请在 Render 修改 LUCYCAM_ACCESS_CODE，保存并部署。Gemini Key 无需因此更换。'});
+  if (!/^gemini-[a-z0-9.-]+$/.test(model)) configurationIssues.push({code: 'INVALID_MODEL', message: 'GEMINI_MODEL 格式不正确，请填写模型 ID 或移除此变量使用默认模型。'});
+  const ready = configurationIssues.length === 0;
   const sign = value => createHmac('sha256', code).update(value).digest('hex');
   const secure = env.NODE_ENV === 'production';
   const positiveInt = (value, fallback) => Number.isInteger(Number(value)) && Number(value) > 0 ? Number(value) : fallback;
@@ -73,7 +79,7 @@ export function createAI({env = process.env, fetchImpl = fetch, now = Date.now, 
     return timingSafeEqual(Buffer.from(signature, 'hex'), Buffer.from(sign(`${expiry}.${nonce}`), 'hex'));
   }
   async function handle(req, res, pathname) {
-    if (!ready) throw fail(503, 'AI 尚未配置。请在 Render 添加 API Key 和至少 12 位访问口令。');
+    if (!ready) throw fail(503, configurationIssues.map(issue => issue.message).join(' '));
     const expectedOrigin = env.RENDER_EXTERNAL_URL ? new URL(env.RENDER_EXTERNAL_URL).origin : `${secure ? 'https' : 'http'}://${req.headers.host}`;
     if (req.headers.origin !== expectedOrigin) throw fail(403, '请从 LucyCam 页面发起请求。');
     if (!/^application\/json(?:;|$)/i.test(req.headers['content-type'] || '')) throw fail(415, '请求格式不正确。');
@@ -129,5 +135,5 @@ export function createAI({env = process.env, fetchImpl = fetch, now = Date.now, 
       throw fail(502, '暂时无法连接 AI 服务，请稍后重试。');
     } finally {inFlight = false;}
   }
-  return {ready, authenticated, handle};
+  return {ready, configurationIssues, authenticated, handle};
 }
