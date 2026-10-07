@@ -30,14 +30,15 @@ test('transform composition and robust fitting ignore independently moving outli
   const fit=estimateSimilarity(pairs);close(fit.matrix[2],8);close(fit.matrix[5],-5);assert.equal(fit.inliers.length,64);
   const accumulated=multiply([1,0,5,0,1,-3],[0,-1,0,1,0,0]);assert.deepEqual(point(accumulated,{x:10,y:20}),{x:-15,y:7});
 });
-test('locked crop transforms target corners, respects resolution and never silently recenters',()=>{
+test('locked crop transforms target corners, respects resolution and reports feasible edge adjustments',()=>{
   const base=cropRect(2400,3200,.75),args={width:2400,height:3200,ratio:.75,base,plan,transform:[1,0,100,0,1,20]};
   const crop=lockCrop(args);close(crop.sx+crop.sw/2,1300);close(crop.sy+crop.sh/2,1620);
   const low=lockCrop({width:480,height:640,ratio:.75,base:cropRect(480,640,.75),plan,transform:identity()});assert.equal(low.sw,480);
-  assert.throws(()=>lockCrop({...args,transform:[1,0,900,0,1,0]}),/越界/);
+  const edge=lockCrop({...args,transform:[1,0,700,0,1,0]});assert.equal(edge.adjusted,true);assert.ok(edge.sx+edge.sw<=2400);
+  assert.throws(()=>lockCrop({...args,transform:[1,0,1000,0,1,0]}),/主体/);
   const full={...plan,crop:{centerX:.5,centerY:.5,scale:1}};
   const tiny=lockCrop({...args,plan:full,transform:[1,0,-1e-7,0,1,0]});assert.equal(tiny.sx,0);
-  assert.throws(()=>lockCrop({...args,plan:full,transform:[1,0,-.01,0,1,0]}));
+  const shiftedFull=lockCrop({...args,plan:full,transform:[1,0,-.01,0,1,0]});assert.equal(shiftedFull.sx,0);assert.equal(shiftedFull.adjusted,true);
   const rotated=lockCrop({...args,transform:[Math.cos(.1),-Math.sin(.1),150,Math.sin(.1),Math.cos(.1),-100]});assert.ok(rotated.sw>crop.sw);
 });
 test('guide validation rejects malformed geometry, subject truncation and unsafe filter data',()=>{
@@ -95,4 +96,27 @@ test('temporary subject uncertainty recovers with the same reference; sustained 
   assert.equal(r.c.state,'GUIDING');assert.equal(r.c.runId,id);assert.equal(r.c.abort.signal.aborted,false);
   for(let i=0;i<25;i++)r.frame();await Promise.resolve();assert.equal(r.captures(),1);
   r.c.cancel();r.release();
+});
+
+test('near-full AI crops survive small rotations, affine shear and low-resolution quality floor',()=>{
+  for(const [width,height] of [[2400,3200],[480,640]])for(const ratio of [.75,1,9/16])for(const scale of [.98,1]){
+    const base=cropRect(width,height,ratio),a=.025,c=Math.cos(a),s=Math.sin(a);
+    for(const linear of [[c,-s,s,c],[1.01,.015,.005,1.01]]){
+      const [xx,xy,yx,yy]=linear,transform=[xx,xy,width/2-xx*width/2-xy*height/2,yx,yy,height/2-yx*width/2-yy*height/2];
+      const crop=lockCrop({width,height,ratio,base,plan:{...plan,crop:{centerX:.5,centerY:.5,scale}},transform});
+      assert.ok(crop.sx>=0&&crop.sy>=0&&crop.sx+crop.sw<=width+1e-5&&crop.sy+crop.sh<=height+1e-5);
+      close(crop.sw/crop.sh,ratio);assert.ok(crop.sw<=base.sw);assert.ok(crop.adjusted);
+    }
+  }
+});
+test('full-frame suggestion completes once after a slight camera rotation',async()=>{
+  const r=rig();r.frame();r.c.accept(r.c.runId,{schemaVersion:1,referenceId:'test-reference',plan:{...plan,crop:{centerX:.5,centerY:.5,scale:1}}});
+  const a=.005,c=Math.cos(a),s=Math.sin(a),transform=[c,-s,180-c*180+s*240,s,c,240-s*180-c*240];
+  for(let i=0;i<25;i++)r.frame({transform});await Promise.resolve();assert.equal(r.captures(),1);assert.equal(r.c.config.crop.adjusted,true);r.c.cancel();r.release();
+});
+test('impossible subject containment exits once to manual; later frames cannot restart or capture',async()=>{
+  const r=rig();r.frame();r.c.accept(r.c.runId,{schemaVersion:1,referenceId:'test-reference',plan:{...plan,subject:{label:'全景',box:{x:0,y:0,width:1,height:1}},crop:{centerX:.5,centerY:.5,scale:1}}});
+  for(let i=0;i<25;i++)r.frame({transform:[1,0,2,0,1,0]});await Promise.resolve();
+  assert.equal(r.c.state,'MANUAL');assert.equal(r.c.active(),false);assert.equal(r.c.abort.signal.aborted,true);assert.equal(r.c.config,null);assert.equal(r.captures(),0);
+  assert.equal(r.states.filter(s=>s==='MANUAL').length,1);assert.match(r.c.message,/白色快门/);
 });

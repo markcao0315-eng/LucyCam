@@ -12,8 +12,9 @@ export class GuideController {
     this.cancel();Object.assign(this,options);this.abort=new AbortController();this.started=this.now();this.captureCommitted=false;this.stableSince=null;this.lockTransform=null;this.latest=null;this.unsafeSince=null;
     this.base=cropRect(options.width,options.height,options.ratio);this.emit('ANALYZING','分析中，请保持片刻；可随时取消。');return this.runId;
   }
-  active(id=this.runId){return id===this.runId&&!this.abort?.signal.aborted&&!['IDLE','LOST','REVIEW'].includes(this.state);}
+  active(id=this.runId){return id===this.runId&&!this.abort?.signal.aborted&&!['IDLE','LOST','MANUAL','REVIEW'].includes(this.state);}
   lose(message){if(!this.active())return;this.abort.abort();this.stop();this.config=null;this.emit('LOST',message);}
+  manual(message){if(!this.active())return;this.abort.abort();this.stop();this.config=null;this.target=null;this.emit('MANUAL',message);}
   tick(){
     if(!this.active())return;
     if(this.now()-this.started>20000)this.lose('本轮参考已过期，请重新分析。');
@@ -64,10 +65,11 @@ export class GuideController {
     if(frame.time-this.stableSince<GUIDE_TUNING.alignMs){this.emit('ALIGNING','已对准，保持在圈内。');return;}
     try{
       const crop=lockCrop({width:this.width,height:this.height,ratio:this.ratio,base:this.base,plan:this.plan,transform:this.transform});
+      if(alignmentDistance(this.target,crop)>GUIDE_TUNING.radius)throw new Error('当前建议与可用画面不匹配，自动拍摄已停止。可按白色快门手动拍摄。');
       this.config=Object.freeze({runId:this.runId,sourceWidth:this.width,sourceHeight:this.height,crop,mirrored:false,
         filter:Object.freeze({...this.plan.filter}),aspectRatio:this.aspectRatio,lockedFrameId:frame.frameId});
-      this.lockTransform=[...this.transform];this.zoomStarted=frame.time;this.stableSince=null;this.emit('ZOOMING','正在调整构图和色彩…');
-    }catch(error){this.stableSince=null;this.emit('GUIDING',error.message);}
+      this.lockTransform=[...this.transform];this.zoomStarted=frame.time;this.stableSince=null;this.emit('ZOOMING',crop.adjusted?'已适配当前画面，正在调整色彩…':'正在调整构图和色彩…');
+    }catch(error){this.manual(error.message);}
   }
   currentCrop(time=this.now()){return previewCrop(this.base,this.config,this.state,this.zoomStarted,time);}
   subjectFits(){

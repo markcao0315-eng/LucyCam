@@ -43,19 +43,29 @@ export function lockCrop({width,height,ratio,base,plan,transform}) {
   const center=point(transform,referencePoint(base,centerX,centerY));
   const corners=boxCorners(base,{x:centerX-scale/2,y:centerY-scale/2,width:scale,height:scale}).map(p=>point(transform,p));
   const viewport=cropRect(width,height,ratio);
-  let k=Math.max(...corners.map(p=>Math.max(2*Math.abs(p.x-center.x)/viewport.sw,2*Math.abs(p.y-center.y)/viewport.sh)));
-  const quality=Math.max(720/Math.min(viewport.sw,viewport.sh),Math.sqrt(1e6/(viewport.sw*viewport.sh)));
-  k=Math.max(k,.5,Math.min(1,quality));
-  if (k>1+1e-6) throw new Error('当前角度无法容纳建议构图，请重新分析。');
-  k=Math.min(1,k);
+  const desired=Math.max(...corners.map(p=>Math.max(2*Math.abs(p.x-center.x)/viewport.sw,2*Math.abs(p.y-center.y)/viewport.sh)));
+  const quality=Math.min(1,Math.max(720/Math.min(viewport.sw,viewport.sh),Math.sqrt(1e6/(viewport.sw*viewport.sh))));
+  const subject=boxCorners(base,plan.subject.box).map(p=>point(transform,p)),epsilon=1e-5;
+  const minX=Math.min(...subject.map(p=>p.x)),maxX=Math.max(...subject.map(p=>p.x));
+  const minY=Math.min(...subject.map(p=>p.y)),maxY=Math.max(...subject.map(p=>p.y));
+  const unavailable=()=>{throw new Error('当前画面无法完整保留主体，自动拍摄已停止。可按白色快门手动拍摄。');};
+  if(![desired,minX,maxX,minY,maxY].every(Number.isFinite)||minX < -epsilon||minY < -epsilon||maxX>width+epsilon||maxY>height+epsilon)unavailable();
+  // The old reference rectangle may rotate outside the current sensor. Its empty
+  // corners are preferences, not required content; the tracked subject is required.
+  const required=Math.max((maxX-minX)/viewport.sw,(maxY-minY)/viewport.sh);
+  if(required>1+epsilon)unavailable();
+  const k=Math.min(1,Math.max(Math.min(1,desired),.5,quality,required));
   const sw=viewport.sw*k,sh=viewport.sh*k;
-  let sx=center.x-sw/2,sy=center.y-sh/2;
-  const epsilon=1e-5;
-  if(sx < -epsilon || sy < -epsilon || sx+sw>width+epsilon || sy+sh>height+epsilon) throw new Error('裁切越界，请继续对准或重新分析。');
-  sx=Math.max(0,Math.min(width-sw,sx));sy=Math.max(0,Math.min(height-sh,sy));
-  const subject=boxCorners(base,plan.subject.box).map(p=>point(transform,p));
-  if(subject.some(p=>p.x<sx-epsilon||p.x>sx+sw+epsilon||p.y<sy-epsilon||p.y>sy+sh+epsilon)) throw new Error('无法完整保留主体，请重新分析。');
-  return Object.freeze({sx,sy,sw,sh});
+  // Nearest feasible position that preserves the complete subject and stays in frame.
+  const fitAxis=(wanted,size,limit,lo,hi)=>{
+    const lower=Math.max(0,hi-size),upper=Math.min(limit-size,lo);
+    if(lower>upper+epsilon)unavailable();
+    return Math.max(0,Math.min(limit-size,Math.max(lower,Math.min(upper,wanted))));
+  };
+  const wantedX=center.x-sw/2,wantedY=center.y-sh/2;
+  const sx=fitAxis(wantedX,sw,width,minX,maxX),sy=fitAxis(wantedY,sh,height,minY,maxY);
+  const adjusted=desired>1+epsilon||Math.abs(sx-wantedX)>epsilon||Math.abs(sy-wantedY)>epsilon;
+  return Object.freeze({sx,sy,sw,sh,adjusted});
 }
 
 export function motionBetween(a,b,width,height) {

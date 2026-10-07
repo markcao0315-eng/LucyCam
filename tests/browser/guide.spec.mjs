@@ -113,3 +113,22 @@ test('small camera tilt and hand shake still take exactly one photograph without
   await expect(page.locator('#photoDialog')).toBeVisible();await page.waitForTimeout(500);
   expect(app.calls).toBe(1);expect(await page.evaluate(()=>window.photoChanges)).toBe(1);
 });
+
+for(const scale of [.98,1])test(`near-full crop ${scale} survives real pixel tilt and jitter without the angle/reanalysis loop`,async({page,app})=>{
+  app.plan.crop.scale=scale;app.delay=900;await open(page,app);await unlock(page);
+  await page.evaluate(()=>{window.cameraFixture.jitter=true;window.guideMessages=[];new MutationObserver(()=>window.guideMessages.push(document.getElementById('liveStatus').textContent)).observe(document.getElementById('liveStatus'),{childList:true,subtree:true});});
+  await page.locator('#guideButton').click();await state(page,'REVIEW');
+  const size=await page.locator('#photoPreview').evaluate(async img=>{await img.decode();return {width:img.naturalWidth,height:img.naturalHeight};});
+  expect(size.width).toBeGreaterThan(1350);expect(size.width).toBeLessThanOrEqual(1440);expect(size.width/size.height).toBeCloseTo(.75,2);
+  expect((await page.evaluate(()=>window.guideMessages)).join(' ')).not.toMatch(/无法容纳|重新分析|裁切越界/);
+  expect(app.calls).toBe(1);
+});
+test('uncontainable tracked subject ends in manual mode and the white shutter still works without another AI call',async({page,app})=>{
+  app.plan.crop.scale=1;app.plan.subject.box={x:0,y:.3,width:.8,height:.4};app.delay=1200;
+  await open(page,app);await unlock(page);await page.locator('#guideButton').click();await state(page,'ANALYZING');
+  await page.evaluate(()=>{window.cameraFixture.x=-12;});
+  await state(page,'MANUAL');await expect(page.locator('#liveStatus')).toContainText('白色快门');await expect(page.locator('#guideOverlay')).toBeHidden();
+  await page.waitForTimeout(700);await state(page,'MANUAL');await expect(page.locator('#photoDialog')).not.toBeVisible();
+  await page.locator('#shutter').click();await expect(page.locator('#photoDialog')).toBeVisible();expect(app.calls).toBe(1);
+  await page.screenshot({path:'qa-results/manual-fallback-390.png'});
+});
