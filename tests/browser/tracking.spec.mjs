@@ -3,6 +3,20 @@ import {createAppServer} from '../../server.mjs';
 let server,base;
 test.beforeAll(async()=>{server=createAppServer({env:{}});await new Promise(r=>server.listen(0,'127.0.0.1',r));base=`http://127.0.0.1:${server.address().port}`;});
 test.afterAll(async()=>{server.closeAllConnections();await new Promise(r=>server.close(r));});
+test('new style and local lighting export in Worker matches the preview recipe pixel for pixel',async({page})=>{
+  await page.goto(base);
+  const differences=await page.evaluate(async()=>{
+    const {drawCapture}=await import('/camera-renderer.js'),{renderPixels}=await import('/photo-render-client.js'),{styles}=await import('/photo-styles.js');
+    const source=document.createElement('canvas');source.width=240;source.height=320;const ctx=source.getContext('2d');ctx.fillStyle='#367758';ctx.fillRect(0,0,240,320);ctx.fillStyle='#be8970';ctx.fillRect(80,80,80,170);
+    const config={crop:{sx:0,sy:0,sw:240,sh:320},subjectBox:{x:70,y:70,width:100,height:190},lighting:{subjectEV:.3,backgroundEV:-.15},adjustments:{exposure:.1,contrast:3,saturation:0}};
+    const differences=[];
+    for(const s of styles){
+      const filter={id:s.id,strength:85},preview=drawCapture(source,document.createElement('canvas'),{...config,filter}),expected=preview.getContext('2d').getImageData(0,0,240,320).data;
+      const raw=ctx.getImageData(0,0,240,320),{pixels}=await renderPixels(raw,filter,config.adjustments,{width:240,height:320,subjectBox:{x:70/240,y:70/320,width:100/240,height:190/320},lighting:config.lighting},()=>true);
+      differences.push(expected.reduce((sum,v,i)=>sum+Math.abs(v-pixels.data[i]),0));
+    }return differences;
+  });expect(differences).toEqual([0,0,0,0,0]);
+});
 test('official OpenCV in Worker measures image translation, rotation and scale; rejects white wall',async({page})=>{
   await page.goto(base);
   const result=await page.evaluate(async()=>{

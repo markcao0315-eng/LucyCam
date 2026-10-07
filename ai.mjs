@@ -100,10 +100,10 @@ export function createAI({env = process.env, fetchImpl = fetch, now = Date.now, 
         body: JSON.stringify({
           systemInstruction: {parts: [{text: photographyPrompt(guide)}]},
           contents: [{role: 'user', parts: [
-            {text: `本轮场景：${scenes[body.scene]}。实际 JPEG ${dimensions.width}×${dimensions.height}。${guide?'照片比例：'+body.aspectRatio+'。使用实时规划合同 B2；自主选择值得拍摄的主体和环境关系，选择一个最佳裁切区域。通过轻转镜头对准后数字放大。场景决定风格、曝光和色彩建议。':'使用单帧裁切合同 B1，遵守实际 JPEG 坐标。'}${guide&&body.source?`本地原始取景 ${body.source.width}×${body.source.height}；${body.zoomMode==='compose'?'构图优先，可在有明确收益时收紧裁切，最低 scale=0.2':'画质优先，尽量保留短边720和100万像素'}。`:'原始高分辨率未提供。'}不强制近距离人像，不把所有照片变成相同风格。`},
+            {text: `本轮场景：${scenes[body.scene]}。实际 JPEG ${dimensions.width}×${dimensions.height}。${guide?'照片比例：'+body.aspectRatio+'。使用实时规划合同 B2；自主选择值得拍摄的主体和环境关系，选择最佳裁切区域及最多两个有不同取景意义的备选。通过轻转镜头对准后数字放大。根据场景选择原创风格、曝光和主体/背景补光；最佳方案与备选只在本次调用返回。':'使用单帧裁切合同 B1，遵守实际 JPEG 坐标。'}${guide&&body.source?`本地原始取景 ${body.source.width}×${body.source.height}；${body.zoomMode==='compose'?'构图优先，可在有明确收益时收紧裁切，最低 scale=0.2':'画质优先，尽量保留短边720和100万像素'}。`:'原始高分辨率未提供。'}不强制近距离人像，不把所有照片变成相同风格。`},
             {inlineData: {mimeType: 'image/jpeg', data: body.image}},
           ]}],
-          generationConfig: {responseMimeType: 'application/json', responseJsonSchema: guide?guideSchema:schema, maxOutputTokens: 1500, thinkingConfig: {thinkingLevel: 'MINIMAL'}},
+          generationConfig: {responseMimeType: 'application/json', responseJsonSchema: guide?guideSchema:schema, maxOutputTokens: guide?2200:1500, thinkingConfig: {thinkingLevel: 'MINIMAL'}},
         }),
       });
       if (!response.ok) throw fail(response.status === 429 ? 429 : 502, response.status === 429 ? 'AI 服务额度不足或忙碌，请稍后再试。' : 'AI 服务暂时不可用，请检查 Render 中的模型、API Key 和 Google 项目权限。');

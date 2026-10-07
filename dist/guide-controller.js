@@ -85,7 +85,7 @@ export class GuideController {
       const crop=lockCrop({width:this.width,height:this.height,ratio:this.ratio,base:this.base,plan:this.plan,transform:this.transform,zoomMode:this.zoomMode});
       if(alignmentDistance(this.target,crop)>GUIDE_TUNING.radius)throw new Error('请微调镜头方向，让主体靠近绿色参考框。');
       this.config=Object.freeze({runId:this.runId,sourceWidth:this.width,sourceHeight:this.height,crop,mirrored:false,
-        filter:Object.freeze({...this.plan.filter}),adjustments:Object.freeze({...this.plan.adjustments}),aspectRatio:this.aspectRatio,preserveScale:!!this.plan.framing,lockedFrameId:frame.frameId});
+        filter:Object.freeze({...this.plan.filter}),adjustments:Object.freeze({...this.plan.adjustments}),lighting:Object.freeze({...this.plan.lighting}),aspectRatio:this.aspectRatio,preserveScale:!!this.plan.framing,lockedFrameId:frame.frameId});
       this.lockTransform=[...this.transform];this.zoomStarted=frame.time;this.stableSince=null;this.emit('ZOOMING','正在放大选定区域，并应用 AI 推荐色彩…');
     }catch{this.config=null;this.stableSince=null;this.emit('CORRECTING',this.coaching.action==='hold'?'稍往后退，让主体与画面边缘留一点空隙，再保持镜头方向。':this.coaching.message);}
   }
@@ -117,9 +117,9 @@ export class GuideController {
       .then(()=>{if(!this.active(id))return;this.stop();this.emit('REVIEW','拍摄完成，请保存到相册。');})
       .catch(error=>{if(this.active(id))this.lose(error.message||'请保持主体在画面内并停稳，再点「按当前画面继续」完成拍摄。');});
   }
-  setLook(filter,adjustments){
+  setLook(filter,adjustments,lighting=this.config?.lighting){
     if(!this.config||!['READY','SETTLING'].includes(this.state))return false;
-    this.config=Object.freeze({...this.config,filter:Object.freeze({...filter}),adjustments:Object.freeze({...adjustments})});this.change(this);return true;
+    this.config=Object.freeze({...this.config,filter:Object.freeze({...filter}),adjustments:Object.freeze({...adjustments}),lighting:Object.freeze({...lighting})});this.change(this);return true;
   }
   setZoomMode(mode){
     if(!this.config||!['READY','SETTLING'].includes(this.state)||!['compose','quality'].includes(mode))return;

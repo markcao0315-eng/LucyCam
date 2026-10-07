@@ -1,3 +1,4 @@
+import {styles,styleIds,applyStyle,applyLighting} from './photo-styles.js';
 export const filters = [
   {id:'original',name:'原片',ops:[]},
   {id:'clear',name:'清透',ops:[['brightness',1.06],['contrast',1.04],['saturate',1.08]]},
@@ -6,6 +7,7 @@ export const filters = [
   {id:'mono',name:'黑白',ops:[['saturate',0],['contrast',1.12]]},
   {id:'vivid',name:'鲜活',ops:[['contrast',1.08],['saturate',1.3]]}
 ];
+export const looks=[...styles,...filters];
 export function cropRect(width,height,ratio){
   if(!Number.isFinite(width)||!Number.isFinite(height)||!Number.isFinite(ratio)||width<=0||height<=0||ratio<=0)throw new Error('无效的照片尺寸');
   let sw=width,sh=height;if(width/height>ratio)sw=height*ratio;else sh=width/ratio;
@@ -42,4 +44,11 @@ export function applyAdjustments(data,{exposure=0,contrast=0,saturation=0}={}){
     data[i]=clamp(l+(r-l)*s);data[i+1]=clamp(l+(g-l)*s);data[i+2]=clamp(l+(b-l)*s);
   }
 }
-export function applyLook(data,filter,adjustments){applyAdjustments(data,adjustments);applyPixels(data,filter.id,filter.strength);}
+export function applyLook(data,filter,adjustments,{width,height,subjectBox,lighting}={}){
+  // Learn the local mask from ungraded pixels, then use the same recipe for
+  // preview, thumbnails and export. Editing always starts with the full source.
+  const locallyAdjusted=applyLighting(data,width,height,subjectBox,lighting);
+  applyAdjustments(data,adjustments);
+  if(styleIds.includes(filter.id))applyStyle(data,filter.id,filter.strength);else applyPixels(data,filter.id,filter.strength);
+  return {locallyAdjusted};
+}

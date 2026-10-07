@@ -6,7 +6,11 @@ export function drawCapture(source,canvas,config,{maxEdge=Infinity,filtered=true
   const ctx=canvas.getContext('2d',{willReadFrequently:true});
   if(mirrored){ctx.translate(canvas.width,0);ctx.scale(-1,1);}
   ctx.drawImage(source,crop.sx,crop.sy,crop.sw,crop.sh,0,0,canvas.width,canvas.height);ctx.resetTransform();
-  if(filtered){const pixels=ctx.getImageData(0,0,canvas.width,canvas.height);applyLook(pixels.data,filter,config.adjustments);ctx.putImageData(pixels,0,0);}
+  if(filtered){
+    const pixels=ctx.getImageData(0,0,canvas.width,canvas.height),b=config.subjectBox;
+    const subjectBox=b?{x:(b.x-crop.sx)/crop.sw,y:(b.y-crop.sy)/crop.sh,width:b.width/crop.sw,height:b.height/crop.sh}:null;
+    canvas.lookResult=applyLook(pixels.data,filter,config.adjustments,{width:canvas.width,height:canvas.height,subjectBox,lighting:config.lighting});ctx.putImageData(pixels,0,0);
+  }
   return canvas;
 }
 export function clarity(canvas){
@@ -30,7 +34,7 @@ export function nextVideoFrame(video,signal){
 export async function captureCurrentFrame(video,config,signal,valid,freeze){
   await nextVideoFrame(video,signal);
   if(!valid()||signal.aborted||video.readyState<2||video.videoWidth!==config.sourceWidth||video.videoHeight!==config.sourceHeight)throw new Error('画面已改变，本轮已取消。');
-  const canvas=drawCapture(video,document.createElement('canvas'),config,{filtered:false});
+  const canvas=drawCapture(video,document.createElement('canvas'),{...config,crop:{sx:0,sy:0,sw:video.videoWidth,sh:video.videoHeight}},{filtered:false});
   // No async boundary between the freshness check, pixel copy and freeze.
   if(!freeze()){canvas.width=canvas.height=1;throw new DOMException('拍摄已取消','AbortError');}
   return canvas;

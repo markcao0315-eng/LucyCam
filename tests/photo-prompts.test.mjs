@@ -18,7 +18,7 @@ test('manual failure placeholders are stop-only; filter promises match supported
   assert.throws(()=>validateGuidePlan({...failed,crop:{centerX:.5,centerY:.5,scale:.8}}));
   assert.throws(()=>validateGuidePlan({...failed,filter:{id:'original',strength:20}}));
   const mono={...failed,canGuide:true,filter:{id:'mono',strength:100}};
-  assert.throws(()=>validateGuidePlan(mono,{scene:'portrait'}));assert.equal(validateGuidePlan(mono,{scene:'landscape'}).filter.strength,100);
+  assert.equal(validateGuidePlan(mono,{scene:'portrait'}).filter.strength,100);assert.equal(validateGuidePlan(mono,{scene:'landscape'}).filter.strength,100);
 });
 
 test('live contract permits scene discovery, meaningful zoom and bounded color edits',()=>{
@@ -26,4 +26,5 @@ test('live contract permits scene discovery, meaningful zoom and bounded color e
   assert.ok(guideSchema.required.includes('adjustments'));assert.ok(guideSchema.required.includes('lookReason'));
   assert.match(photoRules.guide,/scene=auto/);assert.match(photoRules.guide,/最终期望保留/);assert.match(photoRules.core,/不能把portrait当成人脸特写/);
   assert.ok(!photoRules.compose.includes('adjustments'));
+  assert.ok(guideSchema.required.includes('alternatives'));assert.ok(guideSchema.required.includes('lighting'));assert.match(photoRules.core,/不因portrait标签统一限制到40/);
 });

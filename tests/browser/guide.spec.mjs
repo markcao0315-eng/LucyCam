@@ -13,9 +13,41 @@ const test=base.extend({app:async({},use)=>{
   await new Promise(r=>server.listen(0,'127.0.0.1',r));app.url=`http://127.0.0.1:${server.address().port}`;app.env=env;
   await use(app);server.closeAllConnections();await new Promise(r=>server.close(r));
 }});
+
+test('scene styles keep a full source, render candidate thumbnails, export the chosen recipe and restore recommendation',async({page,app})=>{
+  app.plan={...defaultPlan,filter:{id:'forest',strength:85},adjustments:{exposure:0,contrast:0,saturation:0},lighting:{subjectEV:.3,backgroundEV:-.15},lookReason:'深绿环境与主体补光。',alternatives:[{label:'更多环境',reason:'保留更多背景。',crop:{centerX:.5,centerY:.5,scale:.9}}]};
+  await open(page,app);await page.locator('#autoCapture').uncheck();await unlock(page);await page.locator('#guideButton').click();await state(page,'READY');await expect(page.locator('#liveFilter')).toHaveValue('forest');
+  await page.locator('#shutter').click();await state(page,'REVIEW');await expect(page.locator('#reviewStatus')).toContainText('已应用');
+  await expect(page.locator('#styleChoices button')).toHaveCount(6);await expect(page.locator('#cropChoices button')).toHaveCount(3);await expect(page.locator('#reviewRecipe')).toContainText('森系电影 85%');
+  const size=()=>page.locator('#photoPreview').evaluate(async img=>{await img.decode();return [img.naturalWidth,img.naturalHeight];}),originalSize=await size();
+  await page.locator('#cropChoices button').filter({hasText:'完整底图'}).click();await expect(page.locator('#reviewStatus')).toContainText('已应用');expect(await size()).toEqual([1440,1920]);
+  await page.locator('[data-style=amber]').click();await expect(page.locator('#photoMeta')).toContainText('暖光胶片');expect(await size()).toEqual([1440,1920]);
+  const downloadPromise=page.waitForEvent('download');await page.locator('#downloadButton').click();const download=await downloadPromise;expect(download.suggestedFilename()).toMatch(/\.jpg$/);
+  await page.locator('#reviewRecommend').click();await expect(page.locator('#reviewStatus')).toContainText('已应用');expect(await size()).toEqual(originalSize);await expect(page.locator('#reviewFilter')).toHaveValue('forest');await expect(page.locator('#reviewSubjectLight')).toHaveValue('0.3');
+  await page.locator('#beforeAfter summary').click();await expect(page.locator('#sourcePreview')).toBeVisible();expect(await page.locator('#sourcePreview').evaluate(async i=>{await i.decode();return i.naturalWidth/i.naturalHeight;})).toBe(.75);
+  await page.locator('#beforeAfter summary').click();await page.setViewportSize({width:320,height:780});await page.locator('#styleChoices').scrollIntoViewIfNeeded();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await page.screenshot({path:'qa-results/photo-styles-320.png'});expect(app.calls).toBe(1);
+});
+
+test('imported photo has local style previews without AI upload and closing during encoding cannot reopen it',async({page,app})=>{
+  await page.goto(app.url);
+  const jpeg=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=900;c.height=600;const ctx=c.getContext('2d'),g=ctx.createLinearGradient(0,0,900,600);g.addColorStop(0,'#40805c');g.addColorStop(.5,'#d19c7a');g.addColorStop(1,'#83b2d5');ctx.fillStyle=g;ctx.fillRect(0,0,900,600);return c.toDataURL('image/jpeg').split(',')[1];});
+  await page.locator('#fileInput').setInputFiles({name:'test.jpg',mimeType:'image/jpeg',buffer:Buffer.from(jpeg,'base64')});await expect(page.locator('#reviewControls')).toBeEnabled();await expect(page.locator('#photoDialog')).toBeVisible();await expect(page.locator('#reviewLighting')).toBeHidden();
+  await page.locator('[data-style=editorial]').click();await expect(page.locator('#photoMeta')).toContainText('都市杂志');await expect(page.locator('#photoMeta')).toContainText('900 × 600');
+  const url=await page.locator('#photoPreview').getAttribute('src');
+  await page.evaluate(()=>{const original=HTMLCanvasElement.prototype.toBlob;HTMLCanvasElement.prototype.toBlob=function(cb,...args){return original.call(this,b=>setTimeout(()=>cb(b),1000),...args);};});
+  await page.locator('[data-style=travel]').click();await expect(page.locator('#downloadButton')).toBeDisabled();await page.locator('#closePhoto').click();await page.waitForTimeout(1300);await expect(page.locator('#photoDialog')).not.toBeVisible();expect(await page.locator('#photoPreview').getAttribute('src')).toBe(url);expect(app.calls).toBe(0);
+  await page.locator('#lastPhoto').click();await expect(page.locator('#reviewFilter')).toHaveValue('editorial');
+});
 async function open(page,app){await installCamera(page);await page.goto(app.url);await page.locator('#startButton').click();await expect(page.locator('#guideButton')).toBeEnabled();await page.locator('.guide-section summary').click();await page.locator('[data-scene=landscape]').click();await page.locator('#autoCapture').check();}
 async function unlock(page){await page.locator('#guideButton').click();await expect(page.locator('#accessDialog')).toBeVisible();await page.locator('#accessCode').fill('wrong');await page.locator('#unlockAI').click();await expect(page.locator('#accessStatus')).toContainText('不正确');await page.locator('#accessCode').fill('browser-test-code');await page.locator('#unlockAI').click();await expect(page.locator('#accessDialog')).not.toBeVisible();}
 async function state(page,value){await expect(page.locator('#liveSection')).toHaveAttribute('data-state',value,{timeout:12000});}
+
+test('transparent imports use the same white base in style thumbnails and the saved JPEG',async({page,app})=>{
+  await page.goto(app.url);const png=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=160;c.height=240;c.getContext('2d').fillRect(60,80,40,80);return c.toDataURL().split(',')[1];});
+  await page.locator('#fileInput').setInputFiles({name:'transparent.png',mimeType:'image/png',buffer:Buffer.from(png,'base64')});await expect(page.locator('#photoDialog')).toBeVisible();await page.locator('[data-style=amber]').click();await expect(page.locator('#photoMeta')).toContainText('暖光胶片');
+  const pixels=await page.evaluate(async()=>{const img=document.getElementById('photoPreview');await img.decode();const c=document.createElement('canvas');c.width=160;c.height=240;const ctx=c.getContext('2d');ctx.drawImage(img,0,0);return {photo:[...ctx.getImageData(10,10,1,1).data],thumb:[...document.querySelector('[data-style=amber] canvas').getContext('2d').getImageData(5,5,1,1).data]};});
+  for(let i=0;i<3;i++)expect(Math.abs(pixels.photo[i]-pixels.thumb[i])).toBeLessThanOrEqual(3);expect(pixels.photo[0]).toBeGreaterThan(230);expect(app.calls).toBe(0);
+});
 
 test('5MP automatic photo survives slow filtering and JPEG export without a second click',async({page,app})=>{
   app.plan.crop.scale=1;app.plan.framing={subjectX:.5,subjectY:.5};

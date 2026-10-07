@@ -43,7 +43,7 @@ test('invalid provider geometry is a safe error and never silently clamped',asyn
 });
 test('exact static whitelist serves modules and pinned runtime while protecting documents',async t=>{
   const f=await fixture(t);
-  for(const file of ['guide-coach','motion-sensor','guide-ui','guide-controller','guide-geometry','camera-renderer','tracking-worker','tracking-client','tracking-core','tracking-math','guide-plan']){const r=await fetch(`${f.base}/${file}.js`);assert.equal(r.status,200);assert.match(r.headers.get('content-type'),/javascript/);}
+  for(const file of ['photo-styles','photo-editor','photo-composition','guide-coach','motion-sensor','guide-ui','guide-controller','guide-geometry','camera-renderer','tracking-worker','tracking-client','tracking-core','tracking-math','guide-plan']){const r=await fetch(`${f.base}/${file}.js`);assert.equal(r.status,200);assert.match(r.headers.get('content-type'),/javascript/);}
   const vendor=await fetch(`${f.base}/vendor/opencv-4.13.0.js`);assert.equal(vendor.status,200);assert.match(vendor.headers.get('content-type'),/javascript/);
   for(const file of ['/docs/LucyCam-实时AI拍摄技术实施书.md','/tests/guide-api.test.mjs','/vendor/unknown.js','/AGENTS.md'])assert.equal((await fetch(f.base+file)).status,404);
 });
@@ -60,4 +60,10 @@ test('auto discovery transmits selected crop, scene evidence and exposure with o
  const f=await fixture(t,{fetchImpl:async()=>Response.json({candidates:[{finishReason:'STOP',content:{parts:[{text:JSON.stringify(next)}]}}]})});await f.login();
  for(const extra of [{zoomMode:'bad'},{source:{width:-1,height:1920}},{source:{width:1440}}])assert.equal((await f.post('/api/guide-plan',{...payload,scene:'auto',...extra})).status,400);
  assert.equal(f.calls(),0);const r=await f.post('/api/guide-plan',{...payload,scene:'auto',zoomMode:'compose',source:{width:1440,height:1920}});assert.equal(r.status,200);assert.deepEqual((await r.json()).plan.adjustments,next.adjustments);assert.equal(f.calls(),1);assert.match(f.lastRequest().contents[0].parts[0].text,/1440×1920/);
+});
+
+test('new style, candidate crops and bounded local light share one provider request',async t=>{
+ const next={...plan,filter:{id:'forest',strength:85},lighting:{subjectEV:.3,backgroundEV:-.15},alternatives:[{label:'更多环境',reason:'保留场景的关系。',crop:{centerX:.5,centerY:.5,scale:1}}]};
+ const f=await fixture(t,{fetchImpl:async()=>Response.json({candidates:[{finishReason:'STOP',content:{parts:[{text:JSON.stringify(next)}]}}]})});await f.login();
+ const r=await f.post('/api/guide-plan');assert.equal(r.status,200);const result=await r.json();assert.deepEqual(result.plan.alternatives,next.alternatives);assert.deepEqual(result.plan.lighting,next.lighting);assert.equal(result.plan.filter.strength,85);assert.equal(f.calls(),1);
 });
