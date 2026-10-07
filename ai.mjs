@@ -2,7 +2,8 @@ import {createHash, createHmac, randomBytes, timingSafeEqual} from 'node:crypto'
 import {validateGuidePlan,guideSchema} from './dist/guide-plan.js';
 import {photographyPrompt} from './photo-prompts.mjs';
 
-const fail = (status, message) => Object.assign(new Error(message), {status});
+import {fail,jpegDimensions,readJson} from './request-utils.mjs';
+import {createRetoucher} from './retouch.mjs';
 const digest = value => createHash('sha256').update(value).digest();
 const schema = {
   type: 'object', additionalProperties: false,
@@ -26,36 +27,8 @@ export function validateComposition(value) {
   return {subject: value.subject.trim(), advice: value.advice.trim(), centerX, centerY, scale};
 }
 
-// Read JPEG dimensions before any paid request; reject non-JPEG and oversized images.
-function jpegDimensions(bytes) {
-  if (bytes[0] !== 255 || bytes[1] !== 216 || bytes.at(-2) !== 255 || bytes.at(-1) !== 217) return null;
-  let offset = 2;
-  while (offset + 4 < bytes.length) {
-    if (bytes[offset++] !== 255) return null;
-    while (bytes[offset] === 255) offset++;
-    const marker = bytes[offset++];
-    if (marker === 218 || marker === 217) return null;
-    const length = bytes.readUInt16BE(offset);
-    if (length < 2 || offset + length > bytes.length) return null;
-    if ([192, 193, 194].includes(marker) && length >= 8) return {height: bytes.readUInt16BE(offset + 3), width: bytes.readUInt16BE(offset + 5)};
-    offset += length;
-  }
-  return null;
-}
-
-async function readJson(req, limit) {
-  let size = 0;
-  const chunks = [];
-  for await (const chunk of req) {
-    size += chunk.length;
-    if (size > limit) throw fail(413, '画面数据过大，请重试。');
-    chunks.push(chunk);
-  }
-  try {return JSON.parse(Buffer.concat(chunks).toString('utf8'));}
-  catch {throw fail(400, '请求格式不正确。');}
-}
-
-export function createAI({env = process.env, fetchImpl = fetch, now = Date.now, timeoutMs = 25000} = {}) {
+export function createAI({env = process.env, fetchImpl = fetch, now = Date.now, timeoutMs = 25000, retouchTimeoutMs = 150000} = {}) {
+  const retoucher=createRetoucher({env,fetchImpl,now,timeoutMs:retouchTimeoutMs});
   const key = env.GEMINI_API_KEY?.trim();
   const code = env.LUCYCAM_ACCESS_CODE || '';
   const model = env.GEMINI_MODEL?.trim() || 'gemini-3.1-flash-lite';
@@ -98,6 +71,7 @@ export function createAI({env = process.env, fetchImpl = fetch, now = Date.now, 
       return {authenticated: true};
     }
     if (!authenticated(req)) throw fail(401, '请先输入家庭访问口令。');
+    if(pathname==='/api/retouch')return retoucher.handle(req,res);
     // Lock before reading the body, so simultaneous uploads cannot bypass limits.
     if (inFlight || now() - lastCall < 5000) throw fail(429, '请等几秒，再分析下一张。');
     inFlight = true;
@@ -148,5 +122,5 @@ export function createAI({env = process.env, fetchImpl = fetch, now = Date.now, 
       throw fail(502, '暂时无法连接 AI 服务，请稍后重试。');
     } finally {inFlight = false;}
   }
-  return {ready, configurationIssues, authenticated, handle};
+  return {ready, configurationIssues, authenticated, handle,retouch:retoucher.status};
 }

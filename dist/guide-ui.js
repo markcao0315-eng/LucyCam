@@ -6,7 +6,7 @@ import {displayPoint,referencePoint,GUIDE_TUNING} from './guide-geometry.js';
 import {filters} from './photo-utils.js';
 const $=id=>document.getElementById(id);
 
-export function setupGuide({video,getCamera,ai,makePhoto,cancelCountdown}){
+export function setupGuide({video,getCamera,ai,makePhoto,cancelCountdown,retouchPhoto}){
   let tracker=null,starting=false,epoch=0,watchdog=null,animation=null,raw=null,reviewConfig=null,lastDraw=0;
   const canvas=$('guidePreview'),motion=new MotionSensor();
   function stop(){motion.stop();tracker?.stop();tracker=null;clearInterval(watchdog);cancelAnimationFrame(animation);canvas.hidden=true;}
@@ -14,6 +14,11 @@ export function setupGuide({video,getCamera,ai,makePhoto,cancelCountdown}){
     const frame=await captureCurrentFrame(video,config,signal,valid,freeze);
     try{
       if(!valid()||signal.aborted)throw new Error('本轮已取消。');
+      if(config.retouch){
+        const success=await retouchPhoto(frame,{signal,valid});frame.width=frame.height=1;
+        if(!success&&valid()){controller.stop();controller.emit('REVIEW','修图未完成，原片已保留，可在提示中保存。');}
+        return;
+      }
       await makePhoto(frame,frame.width,frame.height,{crop:false,kind:'AI 引导',filter:config.filter,valid:()=>valid()&&!signal.aborted});
       if(!valid()||signal.aborted){frame.width=frame.height=1;return;}
       clearReview();raw=frame;reviewConfig=config;$('reviewColor').hidden=false;$('reviewFilter').value=config.filter.id;$('reviewStrength').value=config.filter.strength;
@@ -23,6 +28,7 @@ export function setupGuide({video,getCamera,ai,makePhoto,cancelCountdown}){
   function update(){
     const camera=getCamera(),status=ai.status(),supported=typeof Worker!=='undefined'&&typeof WebAssembly!=='undefined';
     $('liveSection').hidden=!status.live;
+    $('retouchNotice').textContent=status.retouch?'对准后自动拍摄并上传给 OpenAI 修图；完成后显示成片，可查看原片。':'AI 自动修图尚未配置，当前使用本地拍摄与滤镜。';
     $('guideButton').disabled=!status.configured||!camera.ready||camera.mirrored||!supported||starting||controller.active();
     $('guideButton').textContent=controller.state==='LOST'?'按当前画面继续':'AI 帮我拍';
     $('cancelGuide').hidden=!starting&&!controller.active()&&controller.state!=='LOST';
@@ -89,7 +95,7 @@ export function setupGuide({video,getCamera,ai,makePhoto,cancelCountdown}){
       // Capture both the AI crop and tracker reference from exactly the same full frame.
       const full=document.createElement('canvas');full.width=video.videoWidth;full.height=video.videoHeight;full.getContext('2d').drawImage(video,0,0);
       const client=tracker;tracker=null; // start() cancels the previous run.
-      const id=controller.start({width:full.width,height:full.height,ratio:camera.ratio,aspectRatio:camera.aspectRatio,scene:camera.scene,referenceId:crypto.randomUUID(),autoCapture:$('autoCapture').checked});
+      const id=controller.start({width:full.width,height:full.height,ratio:camera.ratio,aspectRatio:camera.aspectRatio,scene:camera.scene,referenceId:crypto.randomUUID(),autoCapture:$('autoCapture').checked,postRetouch:ai.status().retouch});
       tracker=client;motion.start();
       const tracking=tracker.sample(full,video.currentTime);tracker.start();
       const upload=document.createElement('canvas');drawCapture(full,upload,{crop:controller.base,mirrored:false,filter:{id:'original',strength:0}},{maxEdge:1024,filtered:false});

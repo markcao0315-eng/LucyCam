@@ -2,7 +2,7 @@ import {cropRect, outputSize} from './photo-utils.js';
 const $ = id => document.getElementById(id);
 
 export function setupAI({video, getCamera, setBusy, makePhoto, beforeAnalyze=()=>{}}) {
-  let live=false;
+  let live=false,retouch=false;
   let configured = false, authenticated = false, loading = false, refreshing = false, frame = null, result = null, controller = null, generation = 0;
   const message = text => {$('aiStatus').textContent = text;};
   function update() {
@@ -21,7 +21,7 @@ export function setupAI({video, getCamera, setBusy, makePhoto, beforeAnalyze=()=
       if (!response.ok) throw new Error();
       const status = await response.json();
       configured = status.features?.aiComposition === true;
-      live=status.features?.liveTracking===true;
+      live=status.features?.liveTracking===true;retouch=status.retouch?.configured===true;
       authenticated = status.authenticated === true;
       const issues = status.configuration?.issues;
       message(configured ? '点击上传当前一帧，由 Google AI 分析构图。' :
@@ -137,7 +137,7 @@ export function setupAI({video, getCamera, setBusy, makePhoto, beforeAnalyze=()=
   window.addEventListener('focus', () => {if (!configured) refresh();});
   window.addEventListener('pageshow', () => {if (!configured) refresh();});
   refresh();
-  return {update, available: () => configured,request,status:()=>({configured,authenticated,live}),requireUnlock:()=>{
+  return {update, available: () => configured,request,status:()=>({configured,authenticated,live,retouch}),requireUnlock:()=>{
     if(authenticated)return true;$('accessStatus').textContent='';$('accessDialog').showModal();return false;
   }};
 }

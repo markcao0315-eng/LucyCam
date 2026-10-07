@@ -12,7 +12,7 @@ const assets = new Map([
   ['/app.js', 'text/javascript; charset=utf-8'],
   ['/ai-ui.js', 'text/javascript; charset=utf-8'],
   ['/photo-utils.js', 'text/javascript; charset=utf-8'],
-  ...['guide-coach','motion-sensor','guide-geometry','tracking-math','tracking-core','tracking-worker','tracking-client','guide-plan','guide-controller','camera-renderer','guide-ui'].map(name=>[`/${name}.js`,'text/javascript; charset=utf-8']),
+  ...['retouch-ui','guide-coach','motion-sensor','guide-geometry','tracking-math','tracking-core','tracking-worker','tracking-client','guide-plan','guide-controller','camera-renderer','guide-ui'].map(name=>[`/${name}.js`,'text/javascript; charset=utf-8']),
   ['/vendor/opencv-4.13.0.js','text/javascript; charset=utf-8'],
   ['/styles.css', 'text/css; charset=utf-8'],
   ['/manifest.webmanifest', 'application/manifest+json'],
@@ -39,7 +39,7 @@ export function createAppServer(options = {}) {
     } catch {
       return json(res, 400, {error: 'INVALID_URL'}, head);
     }
-    if (req.method === 'POST' && ['/api/session', '/api/compose','/api/guide-plan'].includes(pathname)) {
+    if (req.method === 'POST' && ['/api/session', '/api/compose','/api/guide-plan','/api/retouch'].includes(pathname)) {
       try {return json(res, 200, await ai.handle(req, res, pathname));}
       catch (error) {req.resume(); return json(res, error.status || 500, {error: error.status ? error.message : '请求失败，请重试。'});}
     }
@@ -52,11 +52,12 @@ export function createAppServer(options = {}) {
     if (pathname === '/api/status') {
       return json(res, 200, {
         app: 'LucyCam',
-        version: '0.6.1',
+        version: '0.7.0',
         aiRulesVersion: promptVersion,
         features: {camera: true, aiComposition: ai.ready, liveTracking: (options.env||process.env).LIVE_GUIDANCE_ENABLED==='true'},
         authenticated: ai.ready && ai.authenticated(req),
         configuration: {issues: ai.configurationIssues},
+        retouch: ai.retouch,
         message: ai.ready ? 'AI 配置已就绪。' : ai.configurationIssues.map(issue => issue.message).join(' '),
       }, head);
     }

@@ -82,11 +82,11 @@ export class GuideController {
     if(this.stableSince===null)this.stableSince=frame.time;
     if(frame.time-this.stableSince<GUIDE_TUNING.alignMs){this.emit('ALIGNING','已对准，保持在圈内。');return;}
     try{
-      const crop=lockCrop({width:this.width,height:this.height,ratio:this.ratio,base:this.base,plan:this.plan,transform:this.transform});
+      const crop=this.postRetouch?{...this.base}:lockCrop({width:this.width,height:this.height,ratio:this.ratio,base:this.base,plan:this.plan,transform:this.transform});
       if(alignmentDistance(this.target,crop)>GUIDE_TUNING.radius)throw new Error('请微调镜头方向，让主体靠近绿色参考框。');
       this.config=Object.freeze({runId:this.runId,sourceWidth:this.width,sourceHeight:this.height,crop,mirrored:false,
-        filter:Object.freeze({...this.plan.filter}),aspectRatio:this.aspectRatio,preserveScale:!!this.plan.framing,lockedFrameId:frame.frameId});
-      this.lockTransform=[...this.transform];this.zoomStarted=frame.time;this.stableSince=null;this.emit('ZOOMING',this.plan.framing?'构图已对准，保持当前距离，正在调整色彩…':crop.adjusted?'已适配当前画面，正在调整色彩…':'正在调整构图和色彩…');
+        filter:Object.freeze(this.postRetouch?{id:'original',strength:0}:{...this.plan.filter}),retouch:!!this.postRetouch,aspectRatio:this.aspectRatio,preserveScale:this.postRetouch||!!this.plan.framing,lockedFrameId:frame.frameId});
+      this.lockTransform=[...this.transform];this.zoomStarted=frame.time;this.stableSince=null;this.emit('ZOOMING',this.postRetouch?'已对准，停稳后自动拍摄并修图。':this.plan.framing?'构图已对准，保持当前距离，正在调整色彩…':crop.adjusted?'已适配当前画面，正在调整色彩…':'正在调整构图和色彩…');
     }catch{this.config=null;this.stableSince=null;this.emit('CORRECTING',this.coaching.action==='hold'?'稍往后退，让主体与画面边缘留一点空隙，再保持镜头方向。':this.coaching.message);}
   }
   updateCoaching(){
