@@ -1,6 +1,6 @@
 import {cropRect} from './photo-utils.js';
 import {validateGuidePlan} from './guide-plan.js';
-import {point,referencePoint,alignmentDistance,lockCrop,motionBetween,fullTransform} from './guide-geometry.js';
+import {point,referencePoint,alignmentDistance,lockCrop,fullTransform,boxCorners,GUIDE_TUNING,previewCrop} from './guide-geometry.js';
 
 export class GuideController {
   constructor({now=()=>performance.now(),change=()=>{},capture=async()=>{},stop=()=>{}}={}){
@@ -9,7 +9,7 @@ export class GuideController {
   emit(state,message=''){this.state=state;this.message=message;this.change(this);}
   cancel(){this.runId++;this.abort?.abort();this.stop();this.latest=null;this.config=null;this.plan=null;this.target=null;this.emit('IDLE');}
   start(options){
-    this.cancel();Object.assign(this,options);this.abort=new AbortController();this.started=this.now();this.captureCommitted=false;this.stableSince=null;this.lockTransform=null;this.latest=null;
+    this.cancel();Object.assign(this,options);this.abort=new AbortController();this.started=this.now();this.captureCommitted=false;this.stableSince=null;this.lockTransform=null;this.latest=null;this.unsafeSince=null;
     this.base=cropRect(options.width,options.height,options.ratio);this.emit('ANALYZING','分析中，请保持片刻；可随时取消。');return this.runId;
   }
   active(id=this.runId){return id===this.runId&&!this.abort?.signal.aborted&&!['IDLE','LOST','REVIEW'].includes(this.state);}
@@ -35,27 +35,33 @@ export class GuideController {
     this.transform=fullTransform(frame.transform,{width:this.width,height:this.height},{width:frame.width,height:frame.height});
     if(this.state==='ANALYZING')return;
     if(!frame.subjectKnown)return;
-    if(!frame.subjectSafe){this.lose('主体移动或主体特征不足，请手动拍摄或重新分析。');return;}
+    if(!frame.subjectSafe){
+      this.unsafeSince??=frame.time;
+      if(this.state==='CAPTURING'){this.lose('拍摄时追踪不确定，本轮已取消。');return;}
+      if(frame.time-this.unsafeSince>=GUIDE_TUNING.subjectGraceMs){this.lose('持续无法确认主体位置，请手动拍摄或重新分析。');return;}
+      this.config=null;this.lockTransform=null;this.stableSince=null;this.emit('GUIDING','正在确认画面，轻微移动无需重新分析。');return;
+    }
+    this.unsafeSince=null;
     this.target=point(this.transform,referencePoint(this.base,this.plan.crop.centerX,this.plan.crop.centerY));
-    const distance=alignmentDistance(this.target,this.base),still=frame.velocity<.01;
+    const distance=alignmentDistance(this.target,this.currentCrop(frame.time)),still=frame.velocity<GUIDE_TUNING.maxVelocity;
     const continuous=previous&&frame.time-previous.time<=250;
-    const shifted=this.lockTransform&&motionBetween(this.lockTransform,this.transform,this.width,this.height)>.015;
+    const clipped=this.config&&!this.subjectFits();
     if(this.state==='CAPTURING'){
-      if(!still||!continuous||shifted||distance>.05)this.lose('拍摄时画面移动，本轮已取消。');return;
+      if(!still||!continuous||clipped||distance>GUIDE_TUNING.radius)this.lose('拍摄时画面移动，本轮已取消。');return;
     }
     if(['ZOOMING','SETTLING'].includes(this.state)){
-      if(!still||!continuous||shifted||distance>.05){this.config=null;this.lockTransform=null;this.stableSince=null;this.emit('GUIDING','画面移动，请重新对准。');return;}
-      if(this.state==='ZOOMING'&&frame.time-this.zoomStarted>=550){this.stableSince=frame.time;this.emit('SETTLING','保持不动，即将拍摄。');}
-      else if(this.state==='SETTLING'&&frame.time-this.stableSince>=600){
+      if(!still||!continuous||clipped||distance>GUIDE_TUNING.radius){this.config=null;this.lockTransform=null;this.stableSince=null;this.emit('GUIDING','画面移动，请重新对准。');return;}
+      if(this.state==='ZOOMING'&&frame.time-this.zoomStarted>=GUIDE_TUNING.zoomMs){this.stableSince=frame.time;this.emit('SETTLING','保持在圈内，即将拍摄。');}
+      else if(this.state==='SETTLING'&&frame.time-this.stableSince>=GUIDE_TUNING.settleMs){
         if(this.autoCapture)this.commit();else this.emit('SETTLING','已对准，按白色快门拍摄。');
       }else this.change(this);
       return;
     }
-    if(!still||!continuous||distance> (this.state==='ALIGNING'?.05:.03)){
+    if(!still||!continuous||distance>GUIDE_TUNING.radius){
       this.stableSince=null;this.emit('GUIDING','轻转手机，让目标圈靠近中心准星。');return;
     }
     if(this.stableSince===null)this.stableSince=frame.time;
-    if(frame.time-this.stableSince<800){this.emit('ALIGNING','已对准，请停稳。');return;}
+    if(frame.time-this.stableSince<GUIDE_TUNING.alignMs){this.emit('ALIGNING','已对准，保持在圈内。');return;}
     try{
       const crop=lockCrop({width:this.width,height:this.height,ratio:this.ratio,base:this.base,plan:this.plan,transform:this.transform});
       this.config=Object.freeze({runId:this.runId,sourceWidth:this.width,sourceHeight:this.height,crop,mirrored:false,
@@ -63,7 +69,13 @@ export class GuideController {
       this.lockTransform=[...this.transform];this.zoomStarted=frame.time;this.stableSince=null;this.emit('ZOOMING','正在调整构图和色彩…');
     }catch(error){this.stableSince=null;this.emit('GUIDING',error.message);}
   }
-  canCapture(id){return this.active(id)&&this.state==='CAPTURING'&&this.now()-this.latest.time<=250&&this.latest.subjectSafe&&this.latest.velocity<.01;}
+  currentCrop(time=this.now()){return previewCrop(this.base,this.config,this.state,this.zoomStarted,time);}
+  subjectFits(){
+    if(!this.config)return false;
+    const {sx,sy,sw,sh}=this.config.crop;
+    return boxCorners(this.base,this.plan.subject.box).map(p=>point(this.transform,p)).every(p=>p.x>=sx-1e-5&&p.x<=sx+sw+1e-5&&p.y>=sy-1e-5&&p.y<=sy+sh+1e-5);
+  }
+  canCapture(id){return this.active(id)&&this.state==='CAPTURING'&&this.now()-this.latest.time<=250&&this.latest.subjectSafe&&this.latest.velocity<GUIDE_TUNING.maxVelocity&&alignmentDistance(this.target,this.currentCrop())<=GUIDE_TUNING.radius&&this.subjectFits();}
   commit(){
     if(this.captureCommitted||!this.active()||this.now()-this.latest.time>250)return;
     this.captureCommitted=true;const id=this.runId,config=this.config;this.emit('CAPTURING','正在选取清晰的一帧…');

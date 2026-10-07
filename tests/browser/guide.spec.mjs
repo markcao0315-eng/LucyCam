@@ -105,3 +105,11 @@ test('320px live target and cancel stay within the viewport without horizontal o
   const cancel=await page.locator('#cancelInView').boundingBox();expect(cancel.y).toBeGreaterThanOrEqual(0);expect(cancel.y+cancel.height).toBeLessThan(780);
   await page.screenshot({path:'qa-results/guide-tracking-320.png'});await page.locator('#cancelInView').click();
 });
+
+test('small camera tilt and hand shake still take exactly one photograph without reanalysis',async({page,app})=>{
+  await open(page,app);await unlock(page);
+  await page.evaluate(()=>{window.cameraFixture.jitter=true;window.photoChanges=0;new MutationObserver(()=>window.photoChanges++).observe(document.getElementById('photoPreview'),{attributes:true,attributeFilter:['src']});});
+  await page.locator('#guideButton').click();await state(page,'REVIEW');
+  await expect(page.locator('#photoDialog')).toBeVisible();await page.waitForTimeout(500);
+  expect(app.calls).toBe(1);expect(await page.evaluate(()=>window.photoChanges)).toBe(1);
+});

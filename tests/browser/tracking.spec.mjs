@@ -76,3 +76,29 @@ test('shared renderer preserves all aspect ratios and mirrored landmarks; fixed 
   });
   for(const r of results){expect(r.ratio).toBeCloseTo(r.expectedRatio,2);expect(r.preview).toEqual(r.expected);expect(r.exported).toEqual(r.expected);}
 });
+
+test('background angle/shear is compensated while independent subject displacement remains unsafe',async({page})=>{
+  await page.goto(base);
+  const frames=await page.evaluate(async()=>{
+    const worker=new Worker('/tracking-worker.js');
+    const receive=()=>new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error('worker timeout')),15000);worker.onmessage=e=>{clearTimeout(timer);resolve(e.data);};});
+    await receive();
+    const texture=document.createElement('canvas');texture.width=480;texture.height=360;const t=texture.getContext('2d');
+    let seed=42;const rand=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/2**32;};
+    t.fillStyle='#444';t.fillRect(0,0,480,360);
+    for(let i=0;i<2000;i++){t.fillStyle=`rgb(${50+rand()*200},${50+rand()*200},${50+rand()*200})`;t.fillRect(rand()*480,rand()*360,3+rand()*9,3+rand()*9);}
+    const canvas=document.createElement('canvas');canvas.width=480;canvas.height=360;const c=canvas.getContext('2d',{willReadFrequently:true}),frames=[];
+    for(let i=0;i<24;i++){
+      const angle=Math.min(i,15)*.004;
+      c.resetTransform();c.fillStyle='#444';c.fillRect(0,0,480,360);
+      c.setTransform(1-angle*.2,angle*.25,angle,1+angle*.15,-angle*180,-angle*80);c.drawImage(texture,0,0);
+      if(i>=16)c.drawImage(texture,160,110,160,140,172,110,160,140);
+      c.resetTransform();const rgba=c.getImageData(0,0,480,360).data.buffer,p=receive();
+      worker.postMessage({type:'frame',runId:1,frameId:i+1,time:i*100,width:480,height:360,rgba},[rgba]);frames.push(await p);
+      if(i===0)worker.postMessage({type:'subject',runId:1,box:{x:175,y:125,width:120,height:110}});
+    }
+    worker.terminate();return frames;
+  });
+  for(const frame of frames.slice(1,16)){expect(frame.valid).toBe(true);expect(frame.subjectKnown).toBe(true);expect(frame.subjectSafe,JSON.stringify(frame)).toBe(true);}
+  expect(frames.slice(18).every(f=>!f.subjectSafe)).toBe(true);
+});

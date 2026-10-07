@@ -68,14 +68,31 @@ test('paused, duplicate, stale, lost or moving subject frames cannot accumulate 
     if(failure==='duplicate'){for(let i=0;i<10;i++)r.frame({frameId:1});r.advance(301);}
     if(failure==='stale'){r.frame({time:-500});r.advance(301);}
     if(failure==='invalid')r.frame({valid:false});
-    if(failure==='subject')r.frame({subjectSafe:false});
-    if(failure==='motion')for(let i=0;i<30;i++)r.frame({velocity:.2});
+    if(failure==='subject')for(let i=0;i<8;i++)r.frame({subjectSafe:false});
+    if(failure==='motion')for(let i=0;i<30;i++)r.frame({velocity:.6});
     if(failure==='expired')r.advance(20001);
     await Promise.resolve();assert.equal(r.captures(),0,failure);
     assert.equal(r.c.state,failure==='motion'?'GUIDING':'LOST',failure);
   }
 });
 test('movement after zoom unlocks the crop; cancellation before capture microtask prevents capture',async()=>{
-  const r=rig();r.frame();r.accept();for(let i=0;i<10;i++)r.frame();assert.equal(r.c.state,'ZOOMING');r.frame({velocity:.1});assert.equal(r.c.state,'GUIDING');assert.equal(r.c.config,null);
+  const r=rig();r.frame();r.accept();while(r.c.state!=='ZOOMING')r.frame();assert.equal(r.c.state,'ZOOMING');r.frame({velocity:.6});assert.equal(r.c.state,'GUIDING');assert.equal(r.c.config,null);
   for(let i=0;i<25&&r.c.state!=='CAPTURING';i++)r.frame();assert.equal(r.c.state,'CAPTURING');r.c.cancel();await Promise.resolve();assert.equal(r.captures(),0);
+});
+
+test('small hand shake inside visible circle permits one capture; outer edge never aligns',async()=>{
+  const r=rig();r.frame();r.accept();
+  for(let i=0;i<25;i++)r.frame({transform:[1,0,20+(i%2?2:-2),0,1,0],velocity:.12});
+  await Promise.resolve();assert.equal(r.captures(),1);assert.equal(r.c.state,'CAPTURING');
+  r.c.cancel();r.release();
+  const outside=rig();outside.frame();outside.accept();
+  for(let i=0;i<25;i++)outside.frame({transform:[1,0,28,0,1,0],velocity:0});
+  await Promise.resolve();assert.equal(outside.captures(),0);assert.equal(outside.c.state,'GUIDING');
+});
+test('temporary subject uncertainty recovers with the same reference; sustained uncertainty cancels',async()=>{
+  const r=rig();r.frame();r.accept();const id=r.c.runId;
+  for(let i=0;i<3;i++)r.frame({subjectSafe:false});
+  assert.equal(r.c.state,'GUIDING');assert.equal(r.c.runId,id);assert.equal(r.c.abort.signal.aborted,false);
+  for(let i=0;i<25;i++)r.frame();await Promise.resolve();assert.equal(r.captures(),1);
+  r.c.cancel();r.release();
 });

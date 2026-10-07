@@ -1,5 +1,13 @@
 import {cropRect} from './photo-utils.js';
 
+export const GUIDE_TUNING=Object.freeze({radius:.075,alignMs:400,zoomMs:450,settleMs:300,subjectGraceMs:600,maxVelocity:.35});
+export function previewCrop(base,config,state,zoomStarted,time){
+  if(!config)return base;
+  const t=state==='ZOOMING'?Math.min(1,Math.max(0,(time-zoomStarted)/GUIDE_TUNING.zoomMs)):1,eased=t*t*(3-2*t),crop={};
+  for(const key of ['sx','sy','sw','sh'])crop[key]=base[key]+(config.crop[key]-base[key])*eased;
+  return crop;
+}
+
 // Row-major affine matrix mapping reference pixels into current pixels.
 export const identity = () => [1, 0, 0, 0, 1, 0];
 export const point = (m, p) => ({x: m[0]*p.x+m[1]*p.y+m[2], y: m[3]*p.x+m[4]*p.y+m[5]});

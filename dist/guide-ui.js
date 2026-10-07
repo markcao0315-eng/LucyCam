@@ -1,7 +1,7 @@
 import {GuideController} from './guide-controller.js';
 import {TrackingClient} from './tracking-client.js';
 import {drawCapture,captureBurst} from './camera-renderer.js';
-import {displayPoint,referencePoint} from './guide-geometry.js';
+import {displayPoint,referencePoint,GUIDE_TUNING} from './guide-geometry.js';
 import {filters} from './photo-utils.js';
 const $=id=>document.getElementById(id);
 
@@ -36,8 +36,8 @@ export function setupGuide({video,getCamera,ai,makePhoto,cancelCountdown}){
   }
   function previewConfig(){
     if(!controller.config)return null;
-    const config=controller.config,t=controller.state==='ZOOMING'?Math.min(1,Math.max(0,(performance.now()-controller.zoomStarted)/550)):1;
-    const eased=t*t*(3-2*t),crop={};for(const key of ['sx','sy','sw','sh'])crop[key]=controller.base[key]+(config.crop[key]-controller.base[key])*eased;
+    const config=controller.config,t=controller.state==='ZOOMING'?Math.min(1,Math.max(0,(performance.now()-controller.zoomStarted)/GUIDE_TUNING.zoomMs)):1;
+    const eased=t*t*(3-2*t),crop=controller.currentCrop();
     return {...config,crop,filter:{...config.filter,strength:config.filter.strength*eased}};
   }
   function overlay(){
@@ -46,9 +46,9 @@ export function setupGuide({video,getCamera,ai,makePhoto,cancelCountdown}){
     const rect=$('viewfinder').getBoundingClientRect(),crop=previewConfig()?.crop||controller.base;
     const p=displayPoint(controller.target,crop,rect.width,rect.height);
     const outside=p.x<0||p.y<0||p.x>rect.width||p.y>rect.height;
-    const target=$('guideTarget');target.style.left=`${Math.max(20,Math.min(rect.width-20,p.x))}px`;target.style.top=`${Math.max(20,Math.min(rect.height-20,p.y))}px`;
+    const target=$('guideTarget'),diameter=2*GUIDE_TUNING.radius*Math.min(rect.width,rect.height);target.style.width=target.style.height=`${diameter}px`;target.style.left=`${Math.max(20,Math.min(rect.width-20,p.x))}px`;target.style.top=`${Math.max(20,Math.min(rect.height-20,p.y))}px`;
     target.classList.toggle('outside',outside);target.textContent=outside?'➜':'';target.style.transform=`translate(-50%,-50%) ${outside?`rotate(${Math.atan2(p.y-rect.height/2,p.x-rect.width/2)}rad)`:''}`;
-    const progress=controller.state==='ALIGNING'?Math.min(1,(controller.latest.time-controller.stableSince)/800):0;
+    const progress=controller.state==='ALIGNING'?Math.min(1,(controller.latest.time-controller.stableSince)/GUIDE_TUNING.alignMs):0;
     $('guideProgress').value=progress;
   }
   function render(){

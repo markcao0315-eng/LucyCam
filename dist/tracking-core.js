@@ -1,5 +1,5 @@
 import {identity,multiply,inverse,point,motionBetween} from './guide-geometry.js';
-import {estimateSimilarity,coverage,median,residual} from './tracking-math.js';
+import {estimateAffine,coverage,median,residual} from './tracking-math.js';
 
 export class ImageTracker {
   constructor(cv){this.cv=cv;this.transform=identity();this.anchors=[];this.subject=null;this.previous=null;this.points=null;this.time=null;this.failed=false;this.count=0;}
@@ -42,21 +42,24 @@ export class ImageTracker {
         if(status.data[i]&&backStatus.data[i]&&fb<1.5&&err.data32F[i]<20&&u>=3&&v>=3&&u<width-3&&v<height-3)pairs.push({x,y,u,v,fb,anchor:this.anchors[i]});
       }
       const background=this.subject?pairs.filter(p=>!this.inside(p.anchor)):pairs;
-      const model=estimateSimilarity(background);
+      const model=estimateAffine(background);
       const space=model?coverage(model.inliers,width,height):0;
       const scale=model?Math.hypot(model.matrix[0],model.matrix[3]):0;
-      const valid=!!model&&model.inliers.length>=20&&model.ratio>=.65&&model.residual<=2&&space>=.375&&scale>.94&&scale<1.06&&Math.abs(Math.atan2(model.matrix[3],model.matrix[0]))<.08;
+      const m=model?.matrix,scaleY=m?Math.hypot(m[1],m[4]):0;
+      const valid=!!model&&model.inliers.length>=20&&model.ratio>=.65&&model.residual<=2.5&&space>=.375&&scale>.92&&scale<1.08&&scaleY>.92&&scaleY<1.08&&m[0]*m[4]-m[1]*m[3]>0&&Math.abs(m[0]*m[1]+m[3]*m[4])<.12&&Math.abs(Math.atan2(m[3],m[0]))<.1;
       if(!valid){this.failed=true;gray.delete();return {valid:false,reason:'暂时无法稳定跟踪，可手动拍摄。',inliers:model?.inliers.length||0,coverage:space};}
       const before=this.transform;this.transform=multiply(model.matrix,this.transform);
       const referenceBackground=background.filter(p=>p.anchor.trusted);
       const referenceResidual=median(referenceBackground.map(p=>residual(this.transform,{...p.anchor,u:p.u,v:p.v})));
       // A moving foreground may have dominated before the AI identified it.
       // Validate the accumulated chain against original background anchors too.
-      const referenceSafe=!this.subject||(referenceBackground.length>=10&&referenceResidual<2);
+      const referenceSafe=!this.subject||(referenceBackground.length>=10&&referenceResidual<6);
       const subjectPairs=pairs.filter(p=>this.inside(p.anchor)&&p.anchor.trusted);
       const subjectDrift=median(subjectPairs.map(p=>residual(this.transform,{...p.anchor,u:p.u,v:p.v})));
       const subjectMotion=median(subjectPairs.map(p=>residual(model.matrix,p)));
-      const subjectSafe=!!this.subject&&referenceSafe&&subjectPairs.length>=4&&subjectDrift<2&&subjectMotion<1.5;
+      // Allow small parallax / LK accumulation error after camera compensation.
+      // Independent sustained foreground motion still fails the reference check.
+      const subjectSafe=!!this.subject&&referenceSafe&&subjectPairs.length>=4&&subjectDrift<8&&subjectMotion<3;
       const velocity=motionBetween(before,this.transform,width,height)/dt;
       this.previous.delete();this.previous=gray;this.time=time;this.count++;
       // Preserve reference anchors of surviving points. Newly detected background points
