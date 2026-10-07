@@ -4,7 +4,7 @@ import {once} from 'node:events';
 import {createAppServer} from '../server.mjs';
 
 test('Render server serves the camera, reports truthful AI status, and isolates private files', async t => {
-  const server = createAppServer();
+  const server = createAppServer({env: {}});
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   t.after(() => new Promise(resolve => {server.closeAllConnections(); server.close(resolve);}));
@@ -37,7 +37,7 @@ test('Render server serves the camera, reports truthful AI status, and isolates 
   });
   await t.test('malformed URLs and unsupported methods fail explicitly', async () => {
     assert.equal((await fetch(base + '/%ZZ')).status, 400);
-    const response = await fetch(base + '/api/compose', {method: 'POST', body: 'test'});
+    const response = await fetch(base + '/unknown', {method: 'POST', body: 'test'});
     assert.equal(response.status, 405);
     assert.equal(response.headers.get('allow'), 'GET, HEAD');
   });

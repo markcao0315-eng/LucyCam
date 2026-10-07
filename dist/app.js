@@ -1,3 +1,4 @@
+import {setupAI} from './ai-ui.js';
 import {filters,cropRect,outputSize,cssFilter,applyPixels} from './photo-utils.js';
 const $=id=>document.getElementById(id);
 const video=$('video');
@@ -6,7 +7,7 @@ const ratios=[{label:'3:4',value:3/4},{label:'1:1',value:1},{label:'9:16',value:
 const tips={portrait:'让眼睛靠近上方网格线，头顶留一点空间。',travel:'人物放在右侧参考框，左边留给风景；尽量不要切到脚。',landscape:'让地平线靠近下方网格线；天空不出彩时，也可以放在上方。'};
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 function tell(message){$('status').textContent=message;}
-function updateControls(){const ready=!!state.stream&&video.readyState>=2&&!state.busy&&!state.opening;$('shutter').disabled=!ready;$('flipButton').disabled=!ready;$('importButton').disabled=state.busy||state.opening;$('importStartButton').disabled=state.busy||state.opening;$('startButton').disabled=state.opening||state.busy;$('ratioButton').disabled=state.busy;$('timerButton').disabled=state.busy;}
+function updateControls(){const ready=!!state.stream&&video.readyState>=2&&!state.busy&&!state.opening;$('shutter').disabled=!ready;$('flipButton').disabled=!ready;$('importButton').disabled=state.busy||state.opening;$('importStartButton').disabled=state.busy||state.opening;$('startButton').disabled=state.opening||state.busy;$('ratioButton').disabled=state.busy;$('timerButton').disabled=state.busy;ai.update();}
 function releaseStream(){if(state.stream){state.stream.getTracks().forEach(t=>t.stop());state.stream=null;}video.srcObject=null;video.classList.remove('mirrored');$('frameGuide').hidden=true;$('frameLabel').hidden=true;$('resolution').textContent='';updateControls();}
 function cancelCountdown(){state.countToken++;$('countdown').hidden=true;}
 function showStart(message='点击继续使用相机。'){$('startPanel').hidden=false;$('startMessage').textContent=message;$('cameraStatus').textContent='相机未开启';$('startButton').textContent='开启相机';}
@@ -26,7 +27,7 @@ async function startCamera(){
     if(request!==state.request)return;
     $('startPanel').hidden=true;$('cameraStatus').textContent=state.mirrored?'前置 · 镜像':'实时取景';
     $('resolution').textContent=`${video.videoWidth} × ${video.videoHeight}`;updateGuide();
-    tell('调整构图后，按白色快门。照片不会上传。');
+    tell('调整构图后，按白色快门。普通拍照不会上传。');
     track.addEventListener('ended',()=>{if(state.stream===stream){releaseStream();showStart('相机已中断，请重新开启。');}},{once:true});
   }catch(error){if(request===state.request){releaseStream();const messages={NotAllowedError:'相机权限未获允许。请在 Safari 网站设置中允许相机，再重试；也可以先选择照片体验滤镜。',NotFoundError:'没有找到摄像头。请用 iPhone 的 Safari 打开演示网址。',NotReadableError:'摄像头暂时无法使用，请关闭其他正在用相机的应用后重试。'};showStart(messages[error.name]||error.message||'相机启动失败，请重试。');tell('仍可通过「选照片」体验滤镜和保存。');}}
   finally{if(request===state.request){state.opening=false;$('startButton').textContent='开启相机';updateControls();}}
@@ -90,11 +91,12 @@ $('helpButton').onclick=()=>$('helpDialog').showModal();$('closeHelp').onclick=$
 function suspend(){state.request++;state.opening=false;cancelCountdown();releaseStream();showStart('相机已暂停。返回后点击开启相机继续。');}
 document.addEventListener('visibilitychange',()=>{if(document.hidden)suspend();});window.addEventListener('pagehide',suspend);
 video.addEventListener('resize',()=>{if(state.stream)$('resolution').textContent=`${video.videoWidth} × ${video.videoHeight}`;});
+const ai=setupAI({video,getCamera:()=>({active:!!state.stream,ready:!!state.stream&&video.readyState>=2&&!state.busy&&!state.opening,mirrored:state.mirrored,ratio:ratios[state.ratio].value,scene:state.scene}),setBusy:value=>{state.busy=value;updateControls();},makePhoto});
 updateGuide();updateFilter();updateControls();
 // Optional browser agent access exposes settings only; it never captures or shares images.
 const modelContext=document.modelContext;
 if(modelContext?.registerTool){const lifecycle=new AbortController();const register=tool=>{try{Promise.resolve(modelContext.registerTool(tool,{signal:lifecycle.signal})).catch(()=>{});}catch{}};
-  register({name:'read_camera_settings',description:'Read LucyCam camera and filter settings. Does not access photo pixels.',inputSchema:{type:'object',properties:{},additionalProperties:false},annotations:{readOnlyHint:true},execute:()=>({cameraActive:!!state.stream,scene:state.scene,filter:state.filter,strength:state.strength,ratio:ratios[state.ratio].label,aiAvailable:false})});
+  register({name:'read_camera_settings',description:'Read LucyCam camera and filter settings. Does not access photo pixels.',inputSchema:{type:'object',properties:{},additionalProperties:false},annotations:{readOnlyHint:true},execute:()=>({cameraActive:!!state.stream,scene:state.scene,filter:state.filter,strength:state.strength,ratio:ratios[state.ratio].label,aiAvailable:ai.available()})});
   register({name:'set_photo_filter',description:'Set the current preview and next photo filter. Does not capture, upload or save a photo.',inputSchema:{type:'object',properties:{filter:{type:'string',enum:filters.map(f=>f.id)}},required:['filter'],additionalProperties:false},annotations:{readOnlyHint:false},execute:input=>{if(!input||typeof input!=='object'||Object.keys(input).some(k=>k!=='filter')||!filters.some(f=>f.id===input.filter))throw new Error('无效的滤镜');setFilter(input.filter);return {filter:state.filter};}});
   window.addEventListener('pagehide',()=>lifecycle.abort(),{once:true});
 }

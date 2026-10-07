@@ -2,12 +2,14 @@ import http from 'node:http';
 import {readFile} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
+import {createAI} from './ai.mjs';
 
 const publicRoot = fileURLToPath(new URL('./dist/', import.meta.url));
 // Serve only the camera's public assets, never configuration or source secrets.
 const assets = new Map([
   ['/index.html', 'text/html; charset=utf-8'],
   ['/app.js', 'text/javascript; charset=utf-8'],
+  ['/ai-ui.js', 'text/javascript; charset=utf-8'],
   ['/photo-utils.js', 'text/javascript; charset=utf-8'],
   ['/styles.css', 'text/css; charset=utf-8'],
   ['/manifest.webmanifest', 'application/manifest+json'],
@@ -20,7 +22,8 @@ function json(res, status, body, head = false) {
   res.end(head ? undefined : JSON.stringify(body));
 }
 
-export function createAppServer() {
+export function createAppServer(options = {}) {
+  const ai = createAI(options);
   const server = http.createServer(async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'same-origin');
@@ -33,6 +36,10 @@ export function createAppServer() {
     } catch {
       return json(res, 400, {error: 'INVALID_URL'}, head);
     }
+    if (req.method === 'POST' && ['/api/session', '/api/compose'].includes(pathname)) {
+      try {return json(res, 200, await ai.handle(req, res, pathname));}
+      catch (error) {req.resume(); return json(res, error.status || 500, {error: error.status ? error.message : '请求失败，请重试。'});}
+    }
     if (!['GET', 'HEAD'].includes(req.method)) {
       res.setHeader('Allow', 'GET, HEAD');
       req.resume();
@@ -42,8 +49,10 @@ export function createAppServer() {
     if (pathname === '/api/status') {
       return json(res, 200, {
         app: 'LucyCam',
-        features: {camera: true, aiComposition: false},
-        message: 'AI composition is not implemented yet. No model API calls are made.',
+        version: '0.3.0',
+        features: {camera: true, aiComposition: ai.ready, liveTracking: false},
+        authenticated: ai.ready && ai.authenticated(req),
+        message: ai.ready ? 'AI snapshot composition is configured.' : 'Configure GEMINI_API_KEY and LUCYCAM_ACCESS_CODE (at least 12 characters) in Render.',
       }, head);
     }
     if (pathname === '/') pathname = '/index.html';
