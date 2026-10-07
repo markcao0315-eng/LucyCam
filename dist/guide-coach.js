@@ -28,7 +28,7 @@ export function compositionStep(base,plan,transform,previousAction){
       action=horizontal?(dx>0?'right':'left'):(dy>0?'down':'up');error=Math.hypot(dx,dy)-GUIDE_TUNING.radius;
     }
   }
-  const messages={back:'确认身后有空间后，稍往后退，让主体缩小；大小合适时会提示停下。',left:'镜头稍向左转，让主体向右移动、目标圈靠近中心。',right:'镜头稍向右转，让主体向左移动、目标圈靠近中心。',up:'稍抬高镜头，让主体向下移动，收进画面。',down:'稍压低镜头，让主体向上移动，收进画面。',hold:'位置合适，保持片刻，准备自动拍摄。'};
-  const placement=`主体目标位置：画面${cx<.42?'左侧':cx>.58?'右侧':'中间'}${cy<.42?'偏上':cy>.58?'偏下':''}；绿色虚线框是构图参考。`;
+  const messages={back:'确认身后有空间后，稍往后退，让主体缩小；大小合适时会提示停下。',left:'镜头稍向左转，让主体向右移动、目标圈靠近中心。',right:'镜头稍向右转，让主体向左移动、目标圈靠近中心。',up:'稍抬高镜头，让主体向下移动，收进画面。',down:'稍压低镜头，让主体向上移动，收进画面。',hold:'位置合适，保持片刻，准备构图。'};
+  const placement=`主体目标位置：画面${cx<.42?'左侧':cx>.58?'右侧':'中间'}${cy<.42?'偏上':cy>.58?'偏下':''}；AI 将按这个位置组织构图。`;
   return {action,error,required,actual,goal,message:(plan.framing&&['left','right','up','down'].includes(action)?'保持当前距离，':'')+messages[action],placement,arrow:{back:'↔',left:'←',right:'→',up:'↑',down:'↓',hold:'✓'}[action]};
 }

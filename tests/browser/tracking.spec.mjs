@@ -61,25 +61,25 @@ test('image blur, darkness, occlusion and sudden scene changes stop the actual t
 test('shared renderer preserves all aspect ratios and mirrored landmarks; fixed color chart matches export filter',async({page})=>{
   await page.goto(base);
   const results=await page.evaluate(async()=>{
-    const {drawCapture}=await import('/camera-renderer.js'),{cropRect,applyPixels}=await import('/photo-utils.js');
+    const {drawCapture}=await import('/camera-renderer.js'),{cropRect,applyLook}=await import('/photo-utils.js');
     const source=document.createElement('canvas');source.width=1200;source.height=1600;const c=source.getContext('2d');
     const colors=[[240,40,30],[20,230,70],[30,40,220],[180,180,180]];
     colors.forEach((rgb,i)=>{c.fillStyle=`rgb(${rgb})`;c.fillRect((i%2)*600,Math.floor(i/2)*800,600,800);});
     const results=[];
-    for(const ratio of [.75,1,9/16])for(const mirrored of [false,true])for(const id of ['original','clear','warm','film','mono']){
-      const base=cropRect(1200,1600,ratio),crop={sx:base.sx+base.sw*.1,sy:base.sy+base.sh*.1,sw:base.sw*.8,sh:base.sh*.8},config={crop,mirrored,filter:{id,strength:70}};
+    for(const ratio of [.75,1,9/16])for(const mirrored of [false,true])for(const id of ['original','clear','warm','film','mono','vivid'])for(const exposure of [-.5,0,.5]){
+      const base=cropRect(1200,1600,ratio),crop={sx:base.sx+base.sw*.1,sy:base.sy+base.sh*.1,sw:base.sw*.8,sh:base.sh*.8},config={crop,mirrored,filter:{id,strength:70},adjustments:{exposure,contrast:8,saturation:-5}};
       const preview=drawCapture(source,document.createElement('canvas'),config,{maxEdge:480}),exported=drawCapture(source,document.createElement('canvas'),config);
       const sample=can=>Array.from(can.getContext('2d').getImageData(can.width*.25,can.height*.25,1,1).data);
-      const expected=new Uint8ClampedArray([...colors[mirrored?1:0],255]);applyPixels(expected,id,70);
+      const expected=new Uint8ClampedArray([...colors[mirrored?1:0],255]);applyLook(expected,config.filter,config.adjustments);
       results.push({ratio:preview.width/preview.height,expectedRatio:ratio,preview:sample(preview),exported:sample(exported),expected:[...expected]});
     }return results;
   });
   for(const r of results){expect(r.ratio).toBeCloseTo(r.expectedRatio,2);expect(r.preview).toEqual(r.expected);expect(r.exported).toEqual(r.expected);}
 });
 
-test('background angle/shear is compensated while independent subject displacement remains unsafe',async({page})=>{
+for(const size of [120,24])test('background motion compensated; independent subject motion rejected with ROI size '+size,async({page})=>{
   await page.goto(base);
-  const frames=await page.evaluate(async()=>{
+  const frames=await page.evaluate(async size=>{
     const worker=new Worker('/tracking-worker.js');
     const receive=()=>new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error('worker timeout')),15000);worker.onmessage=e=>{clearTimeout(timer);resolve(e.data);};});
     await receive();
@@ -95,10 +95,10 @@ test('background angle/shear is compensated while independent subject displaceme
       if(i>=16)c.drawImage(texture,160,110,160,140,172,110,160,140);
       c.resetTransform();const rgba=c.getImageData(0,0,480,360).data.buffer,p=receive();
       worker.postMessage({type:'frame',runId:1,frameId:i+1,time:i*100,width:480,height:360,rgba},[rgba]);frames.push(await p);
-      if(i===0)worker.postMessage({type:'subject',runId:1,box:{x:175,y:125,width:120,height:110}});
+      if(i===0)worker.postMessage({type:'subject',runId:1,box:{x:175,y:125,width:size,height:size}});
     }
     worker.terminate();return frames;
-  });
+  },size);
   for(const frame of frames.slice(1,16)){expect(frame.valid).toBe(true);expect(frame.subjectKnown).toBe(true);expect(frame.subjectSafe,JSON.stringify(frame)).toBe(true);}
   expect(frames.slice(18).every(f=>!f.subjectSafe)).toBe(true);
 });

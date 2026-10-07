@@ -48,9 +48,16 @@ test('exact static whitelist serves modules and pinned runtime while protecting 
   for(const file of ['/docs/LucyCam-实时AI拍摄技术实施书.md','/tests/guide-api.test.mjs','/vendor/unknown.js','/AGENTS.md'])assert.equal((await fetch(f.base+file)).status,404);
 });
 
-test('portrait provider receives free framing instructions and returns position without zoom',async t=>{
+test('legacy framing remains readable while new requests use scene-selected crop and exposure',async t=>{
   const free={...plan,subject:{label:'远处人物',box:{x:.46,y:.4,width:.08,height:.2}},framing:{subjectX:.7,subjectY:.65},crop:{centerX:.5,centerY:.5,scale:1}};
   const f=await fixture(t,{fetchImpl:async()=>Response.json({candidates:[{finishReason:'STOP',content:{parts:[{text:JSON.stringify(free)}]}}]})});
   await f.login();const r=await f.post('/api/guide-plan');assert.equal(r.status,200);const result=await r.json();assert.deepEqual(result.plan.framing,free.framing);assert.equal(result.plan.crop.scale,1);
-  const request=f.lastRequest();assert.ok(request.generationConfig.responseJsonSchema.required.includes('framing'));assert.match(request.contents[0].parts[0].text,/保持拍摄距离/);assert.equal(f.calls(),1);
+  const request=f.lastRequest();assert.ok(request.generationConfig.responseJsonSchema.required.includes('adjustments'));assert.match(request.contents[0].parts[0].text,/自主选择/);assert.equal(f.calls(),1);
+});
+
+test('auto discovery transmits selected crop, scene evidence and exposure with one shared paid request',async t=>{
+ const next={...plan,filter:{id:'vivid',strength:55},adjustments:{exposure:.2,contrast:0,saturation:0},lookReason:'绿植偏淡，鲜活增强颜色。'};
+ const f=await fixture(t,{fetchImpl:async()=>Response.json({candidates:[{finishReason:'STOP',content:{parts:[{text:JSON.stringify(next)}]}}]})});await f.login();
+ for(const extra of [{zoomMode:'bad'},{source:{width:-1,height:1920}},{source:{width:1440}}])assert.equal((await f.post('/api/guide-plan',{...payload,scene:'auto',...extra})).status,400);
+ assert.equal(f.calls(),0);const r=await f.post('/api/guide-plan',{...payload,scene:'auto',zoomMode:'compose',source:{width:1440,height:1920}});assert.equal(r.status,200);assert.deepEqual((await r.json()).plan.adjustments,next.adjustments);assert.equal(f.calls(),1);assert.match(f.lastRequest().contents[0].parts[0].text,/1440×1920/);
 });

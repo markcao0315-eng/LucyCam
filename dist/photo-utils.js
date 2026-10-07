@@ -3,7 +3,8 @@ export const filters = [
   {id:'clear',name:'清透',ops:[['brightness',1.06],['contrast',1.04],['saturate',1.08]]},
   {id:'warm',name:'暖阳',ops:[['sepia',.28],['saturate',1.1],['brightness',1.04]]},
   {id:'film',name:'胶片',ops:[['sepia',.16],['saturate',.78],['contrast',.86],['brightness',1.08]]},
-  {id:'mono',name:'黑白',ops:[['saturate',0],['contrast',1.12]]}
+  {id:'mono',name:'黑白',ops:[['saturate',0],['contrast',1.12]]},
+  {id:'vivid',name:'鲜活',ops:[['contrast',1.08],['saturate',1.3]]}
 ];
 export function cropRect(width,height,ratio){
   if(!Number.isFinite(width)||!Number.isFinite(height)||!Number.isFinite(ratio)||width<=0||height<=0||ratio<=0)throw new Error('无效的照片尺寸');
@@ -26,3 +27,19 @@ export function applyPixels(data,id,strength){
     }data[i]=r;data[i+1]=g;data[i+2]=b;
   }
 }
+
+export const neutralAdjustments=()=>({exposure:0,contrast:0,saturation:0});
+// Exposure is an edit of captured pixels in linear light, not a hardware ISO or
+// shutter-speed promise. Preview and export call the exact same implementation.
+export function applyAdjustments(data,{exposure=0,contrast=0,saturation=0}={}){
+  if(![exposure,contrast,saturation].every(Number.isFinite)||Math.abs(exposure)>2||Math.abs(contrast)>50||Math.abs(saturation)>50)throw new Error('无效的明暗或色彩设置');
+  if(!exposure&&!contrast&&!saturation)return;
+  const gain=2**exposure,lut=new Float64Array(256),clamp=n=>Math.max(0,Math.min(255,n));
+  for(let i=0;i<256;i++){const c=i/255,l=(c<=.04045?c/12.92:((c+.055)/1.055)**2.4)*gain;lut[i]=255*(l<=.0031308?12.92*l:1.055*l**(1/2.4)-.055);}
+  for(let i=0;i<data.length;i+=4){let r=lut[data[i]],g=lut[data[i+1]],b=lut[data[i+2]];
+    r=(r-127.5)*(1+contrast/100)+127.5;g=(g-127.5)*(1+contrast/100)+127.5;b=(b-127.5)*(1+contrast/100)+127.5;
+    const l=.213*r+.715*g+.072*b,s=1+saturation/100;
+    data[i]=clamp(l+(r-l)*s);data[i+1]=clamp(l+(g-l)*s);data[i+2]=clamp(l+(b-l)*s);
+  }
+}
+export function applyLook(data,filter,adjustments){applyAdjustments(data,adjustments);applyPixels(data,filter.id,filter.strength);}

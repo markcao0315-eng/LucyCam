@@ -43,7 +43,7 @@ test('locked crop transforms target corners, respects resolution and reports fea
 });
 test('guide validation rejects malformed geometry, subject truncation and unsafe filter data',()=>{
   assert.deepEqual(validateGuidePlan(plan),plan);
-  for(const mutate of [p=>p.crop.scale=.49,p=>p.crop.centerX=NaN,p=>p.subject.box.width=0,p=>p.subject.box.x=.9,p=>p.filter.id='url(evil)',p=>p.filter.strength=1.5,p=>p.subject.label='x'.repeat(101),p=>p.advice='x'.repeat(301),p=>p.crop.centerX=.2,p=>p.subject.box={x:0,y:0,width:.8,height:.8}]){const p=structuredClone(plan);mutate(p);assert.throws(()=>validateGuidePlan(p));}
+  for(const mutate of [p=>p.crop.scale=.19,p=>p.crop.centerX=NaN,p=>p.subject.box.width=0,p=>p.subject.box.x=.9,p=>p.filter.id='url(evil)',p=>p.filter.strength=1.5,p=>p.subject.label='x'.repeat(101),p=>p.advice='x'.repeat(301),p=>p.crop.centerX=.2,p=>p.subject.box={x:0,y:0,width:.8,height:.8}]){const p=structuredClone(plan);mutate(p);assert.throws(()=>validateGuidePlan(p));}
 });
 function rig(){
   let time=0,captures=0,release;const states=[];
@@ -165,4 +165,24 @@ test('free framing rejects aggressive crop and impossible target placement',()=>
   assert.ok(validateGuidePlan(free));
   for(const framing of [null,{}, {subjectX:.99,subjectY:.6},{subjectX:NaN,subjectY:.5}])assert.throws(()=>validateGuidePlan({...free,framing}));
   assert.throws(()=>validateGuidePlan({...free,crop:{centerX:.5,centerY:.5,scale:.7}}));
+});
+
+test('manual ready preserves one crop and recommendation until explicit shutter; cancellation still wins',async()=>{
+  const r=rig();r.c.autoCapture=false;r.frame();r.accept();for(let i=0;i<25;i++)r.frame();
+  assert.equal(r.c.state,'READY');assert.equal(r.captures(),0);const crop=r.c.config.crop;
+  r.c.setLook({id:'vivid',strength:50},{exposure:.3,contrast:10,saturation:-5});assert.equal(r.c.config.crop,crop);
+  for(let i=0;i<250;i++)r.frame();assert.equal(r.c.state,'READY');assert.equal(r.captures(),0);
+  r.c.commit();r.c.commit();await Promise.resolve();assert.equal(r.captures(),1);r.c.cancel();r.release();
+});
+test('composition preference honors tight selected region; quality expands without inventing pixels',()=>{
+  const base=cropRect(1440,1920,.75),tight={...plan,subject:{label:'花园中的人',box:{x:.60,y:.63,width:.1,height:.1}},crop:{centerX:.58,centerY:.60,scale:.35}};
+  const args={width:1440,height:1920,ratio:.75,base,plan:tight,transform:identity()};
+  const compose=lockCrop({...args,zoomMode:'compose'}),quality=lockCrop({...args,zoomMode:'quality'});
+  close(compose.sw,504);close(compose.sh,672);assert.ok(quality.sw>compose.sw);assert.ok(quality.sw*quality.sh>=999999);
+  const subject=displayPoint(referencePoint(base,.65,.68),compose,300,400);close(subject.x/300,.7);close(subject.y/400,.5+.08/.35);
+});
+test('AI exposure and color reject out-of-range, missing or non-finite edits',()=>{
+  const p={...plan,adjustments:{exposure:.3,contrast:10,saturation:-5},lookReason:'亮部仍有余量，轻提暗部。'};
+  assert.deepEqual(validateGuidePlan(p).adjustments,p.adjustments);
+  for(const adjustments of [null,{}, {exposure:NaN,contrast:0,saturation:0},{exposure:1.01,contrast:0,saturation:0},{exposure:0,contrast:31,saturation:0}])assert.throws(()=>validateGuidePlan({...p,adjustments}));
 });

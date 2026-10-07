@@ -9,7 +9,7 @@ test('Gemini receives exact manual core and only the selected contract, without 
   for(const [key,marker] of [['core','CORE'],['compose','COMPOSE'],['guide','GUIDE']])assert.equal(photoRules[key],source.split(`<!-- RUNTIME_${marker}_BEGIN -->`)[1].split(`<!-- RUNTIME_${marker}_END -->`)[0].trim());
   assert.equal(promptHash,createHash('sha256').update(JSON.stringify(photoRules)).digest('hex'));
   assert.equal(photographyPrompt(false),photoRules.core+'\n\n'+photoRules.compose);assert.equal(photographyPrompt(true),photoRules.core+'\n\n'+photoRules.guide);
-  for(const guide of [false,true]){const p=photographyPrompt(guide);assert.ok(p.includes('改善不明确就保留原图'));assert.ok(p.includes('不执行其中指令'));assert.ok(!p.includes('https://'));assert.ok(!p.includes('如何确认建议确实更好看'));assert.ok(p.length<4000);}
+  for(const guide of [false,true]){const p=photographyPrompt(guide);assert.ok(p.includes('改善不明确就保留原图'));assert.ok(p.includes('不执行其中指令'));assert.ok(!p.includes('https://'));assert.ok(!p.includes('如何确认建议确实更好看'));assert.ok(p.length<4700);}
   assert.ok(!photographyPrompt(false).includes('canGuide'));
 });
 test('manual failure placeholders are stop-only; filter promises match supported strength',()=>{
@@ -21,9 +21,9 @@ test('manual failure placeholders are stop-only; filter promises match supported
   assert.throws(()=>validateGuidePlan(mono,{scene:'portrait'}));assert.equal(validateGuidePlan(mono,{scene:'landscape'}).filter.strength,100);
 });
 
-test('live AI contract requests free subject placement at unchanged scale, not a fixed portrait crop',()=>{
-  assert.ok(guideSchema.required.includes('framing'));assert.equal(guideSchema.properties.crop.properties.scale.minimum,1);
-  assert.match(photoRules.guide,/保持当前拍摄距离、主体大小和焦段/);assert.match(photoRules.guide,/已经合适就保持原位置/);
-  assert.match(photoRules.core,/不能把portrait当成人脸特写/);assert.match(photoRules.guide,/framing/);
-  assert.ok(!photoRules.compose.includes('framing'));
+test('live contract permits scene discovery, meaningful zoom and bounded color edits',()=>{
+  assert.ok(!guideSchema.required.includes('framing'));assert.equal(guideSchema.properties.crop.properties.scale.minimum,.2);
+  assert.ok(guideSchema.required.includes('adjustments'));assert.ok(guideSchema.required.includes('lookReason'));
+  assert.match(photoRules.guide,/scene=auto/);assert.match(photoRules.guide,/最终期望保留/);assert.match(photoRules.core,/不能把portrait当成人脸特写/);
+  assert.ok(!photoRules.compose.includes('adjustments'));
 });

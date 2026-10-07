@@ -45,7 +45,7 @@ export function guidanceTarget(base,plan,transform){
   const b=plan.subject.box,subject=point(transform,referencePoint(base,b.x+b.width/2,b.y+b.height/2));
   return {x:subject.x+(.5-plan.framing.subjectX)*base.sw,y:subject.y+(.5-plan.framing.subjectY)*base.sh};
 }
-export function lockCrop({width,height,ratio,base,plan,transform}) {
+export function lockCrop({width,height,ratio,base,plan,transform,zoomMode='quality'}) {
   if(plan.framing){
     const crop=cropRect(width,height,ratio),subject=boxCorners(base,plan.subject.box).map(p=>point(transform,p));
     if(subject.some(p=>p.x<crop.sx-1e-5||p.y<crop.sy-1e-5||p.x>crop.sx+crop.sw+1e-5||p.y>crop.sy+crop.sh+1e-5))throw new Error('请按方向提示转动镜头，把主体完整收进当前画面。');
@@ -66,7 +66,7 @@ export function lockCrop({width,height,ratio,base,plan,transform}) {
   // corners are preferences, not required content; the tracked subject is required.
   const required=Math.max((maxX-minX)/viewport.sw,(maxY-minY)/viewport.sh);
   if(required>1+epsilon)unavailable();
-  const k=Math.min(1,Math.max(Math.min(1,desired),.5,quality,required));
+  const k=Math.min(1,Math.max(Math.min(1,desired),.2,zoomMode==='quality'?Math.max(.5,quality):0,required));
   const sw=viewport.sw*k,sh=viewport.sh*k;
   // Nearest feasible position that preserves the complete subject and stays in frame.
   const fitAxis=(wanted,size,limit,lo,hi)=>{

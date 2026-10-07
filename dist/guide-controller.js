@@ -18,7 +18,7 @@ export class GuideController {
   lose(message){if(!this.active())return;this.abort.abort();this.stop();this.config=null;this.coaching=null;this.target=null;this.emit('LOST',message);}
   tick(){
     if(!this.active()||this.state==='EXPORTING')return;
-    if(this.now()-this.started>20000)this.lose('请先让主体完整进入画面并留出边缘，再点「按当前画面继续」更新构图（本轮参考已过期）。');
+    if(this.now()-this.started>(this.state==='READY'?60000:20000))this.lose('请先让主体完整进入画面并留出边缘，再点「按当前画面继续」更新构图（本轮参考已过期）。');
     else if(this.recoverySince!==null&&this.now()-this.recoverySince>2500)this.lose('请缓慢转回刚才的方向，让主体完整进入画面；停稳后点「按当前画面继续」确认新位置。');
     else if(this.now()-(this.receivedTime??this.latest?.time??this.started)>STALL_MS)this.lose('相机持续没有送来新画面，请重新开启相机后再点「AI 帮我拍」。');
     else if(this.now()-(this.receivedTime??this.latest?.time??this.started)>FRAME_FRESH_MS&&this.plan&&this.state!=='CAPTURING'){
@@ -67,26 +67,26 @@ export class GuideController {
     if(this.state==='CAPTURING'){
       if(!still||!continuous||clipped||distance>GUIDE_TUNING.radius)this.lose('拍摄时画面移动，本轮已取消。');return;
     }
-    if(['ZOOMING','SETTLING'].includes(this.state)){
+    if(['ZOOMING','SETTLING','READY'].includes(this.state)){
       if(!still||!continuous||clipped||distance>GUIDE_TUNING.radius){this.config=null;this.lockTransform=null;this.stableSince=null;this.emit('GUIDING','画面移动，请重新对准。');return;}
       if(this.state==='ZOOMING'&&frame.time-this.zoomStarted>=GUIDE_TUNING.zoomMs){this.stableSince=frame.time;this.emit('SETTLING','保持在圈内，即将拍摄。');}
       else if(this.state==='SETTLING'&&frame.time-this.stableSince>=GUIDE_TUNING.settleMs){
-        if(this.autoCapture)this.commit();else this.emit('SETTLING','已对准，按白色快门拍摄。');
+        if(this.autoCapture)this.commit();else this.emit('READY','构图和色彩已就绪，按白色快门拍摄。');
       }else this.change(this);
       return;
     }
     if(this.coaching.required){this.config=null;this.stableSince=null;this.emit('CORRECTING',this.coaching.message);return;}
     if(!still||!continuous||distance>GUIDE_TUNING.radius){
-      this.stableSince=null;this.emit('GUIDING',!still?'移动慢一点，跟随箭头调整；停稳后会自动拍摄。':this.coaching.message);return;
+      this.stableSince=null;this.emit('GUIDING',!still?'移动慢一点，跟随目标圈调整。':this.coaching.message);return;
     }
     if(this.stableSince===null)this.stableSince=frame.time;
     if(frame.time-this.stableSince<GUIDE_TUNING.alignMs){this.emit('ALIGNING','已对准，保持在圈内。');return;}
     try{
-      const crop=this.postRetouch?{...this.base}:lockCrop({width:this.width,height:this.height,ratio:this.ratio,base:this.base,plan:this.plan,transform:this.transform});
+      const crop=lockCrop({width:this.width,height:this.height,ratio:this.ratio,base:this.base,plan:this.plan,transform:this.transform,zoomMode:this.zoomMode});
       if(alignmentDistance(this.target,crop)>GUIDE_TUNING.radius)throw new Error('请微调镜头方向，让主体靠近绿色参考框。');
       this.config=Object.freeze({runId:this.runId,sourceWidth:this.width,sourceHeight:this.height,crop,mirrored:false,
-        filter:Object.freeze(this.postRetouch?{id:'original',strength:0}:{...this.plan.filter}),retouch:!!this.postRetouch,aspectRatio:this.aspectRatio,preserveScale:this.postRetouch||!!this.plan.framing,lockedFrameId:frame.frameId});
-      this.lockTransform=[...this.transform];this.zoomStarted=frame.time;this.stableSince=null;this.emit('ZOOMING',this.postRetouch?'已对准，停稳后自动拍摄并修图。':this.plan.framing?'构图已对准，保持当前距离，正在调整色彩…':crop.adjusted?'已适配当前画面，正在调整色彩…':'正在调整构图和色彩…');
+        filter:Object.freeze({...this.plan.filter}),adjustments:Object.freeze({...this.plan.adjustments}),aspectRatio:this.aspectRatio,preserveScale:!!this.plan.framing,lockedFrameId:frame.frameId});
+      this.lockTransform=[...this.transform];this.zoomStarted=frame.time;this.stableSince=null;this.emit('ZOOMING','正在放大选定区域，并应用 AI 推荐色彩…');
     }catch{this.config=null;this.stableSince=null;this.emit('CORRECTING',this.coaching.action==='hold'?'稍往后退，让主体与画面边缘留一点空隙，再保持镜头方向。':this.coaching.message);}
   }
   updateCoaching(){
@@ -111,10 +111,18 @@ export class GuideController {
     this.stop();this.target=null;this.emit('EXPORTING','已拍下，正在处理照片…');return true;
   }
   commit(){
-    if(this.captureCommitted||!this.active()||this.now()-this.latest.time>FRAME_FRESH_MS)return;
+    if(this.captureCommitted||!this.active()||!this.config||!['READY','SETTLING'].includes(this.state)||this.now()-this.latest.time>FRAME_FRESH_MS)return;
     this.captureCommitted=true;const id=this.runId,config=this.config;this.emit('CAPTURING','正在拍摄…');
     Promise.resolve().then(()=>{if(this.canCapture(id))return this.capture(config,this.abort.signal,()=>this.active(id)&&(this.state==='EXPORTING'||this.canCapture(id)),()=>this.freezeCapture(id));throw new Error('本轮拍摄已取消。');})
       .then(()=>{if(!this.active(id))return;this.stop();this.emit('REVIEW','拍摄完成，请保存到相册。');})
       .catch(error=>{if(this.active(id))this.lose(error.message||'请保持主体在画面内并停稳，再点「按当前画面继续」完成拍摄。');});
+  }
+  setLook(filter,adjustments){
+    if(!this.config||!['READY','SETTLING'].includes(this.state))return false;
+    this.config=Object.freeze({...this.config,filter:Object.freeze({...filter}),adjustments:Object.freeze({...adjustments})});this.change(this);return true;
+  }
+  setZoomMode(mode){
+    if(!this.config||!['READY','SETTLING'].includes(this.state)||!['compose','quality'].includes(mode))return;
+    this.zoomMode=mode;this.config=null;this.stableSince=null;this.lockTransform=null;this.emit('GUIDING','保持当前方向，正在切换构图大小。');
   }
 }

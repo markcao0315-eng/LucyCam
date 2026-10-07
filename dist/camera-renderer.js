@@ -1,4 +1,4 @@
-import {applyPixels,outputSize} from './photo-utils.js';
+import {applyLook,outputSize} from './photo-utils.js';
 
 export function drawCapture(source,canvas,config,{maxEdge=Infinity,filtered=true}={}){
   const {crop,mirrored,filter}=config,size=outputSize(crop.sw,crop.sh),scale=Math.min(1,maxEdge/Math.max(size.width,size.height));
@@ -6,7 +6,7 @@ export function drawCapture(source,canvas,config,{maxEdge=Infinity,filtered=true
   const ctx=canvas.getContext('2d',{willReadFrequently:true});
   if(mirrored){ctx.translate(canvas.width,0);ctx.scale(-1,1);}
   ctx.drawImage(source,crop.sx,crop.sy,crop.sw,crop.sh,0,0,canvas.width,canvas.height);ctx.resetTransform();
-  if(filtered&&filter.id!=='original'&&filter.strength){const pixels=ctx.getImageData(0,0,canvas.width,canvas.height);applyPixels(pixels.data,filter.id,filter.strength);ctx.putImageData(pixels,0,0);}
+  if(filtered){const pixels=ctx.getImageData(0,0,canvas.width,canvas.height);applyLook(pixels.data,filter,config.adjustments);ctx.putImageData(pixels,0,0);}
   return canvas;
 }
 export function clarity(canvas){

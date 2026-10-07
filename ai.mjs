@@ -81,9 +81,11 @@ export function createAI({env = process.env, fetchImpl = fetch, now = Date.now, 
       const bytes = Buffer.from(body.image, 'base64');
       const dimensions = jpegDimensions(bytes);
       if (!dimensions || dimensions.width < 32 || dimensions.height < 32 || Math.max(dimensions.width, dimensions.height) > 1280) throw fail(400, '画面格式或尺寸不正确，请重新开启相机。');
-      const scenes = {portrait: '人像', travel: '人与风景', landscape: '风景'};
+      const scenes = {auto: 'AI 自选：从实际画面发现值得拍的主体和环境关系', portrait: '人像', travel: '人与风景', landscape: '风景'};
       if (!Object.hasOwn(scenes, body.scene)) throw fail(400, '请选择有效的拍摄场景。');
       if(guide){
+        if(body.zoomMode!==undefined&&!['compose','quality'].includes(body.zoomMode))throw fail(400,'无效的取景偏好。');
+        if(body.source!==undefined&&(!body.source||!['width','height'].every(k=>Number.isInteger(body.source[k])&&body.source[k]>=32&&body.source[k]<=16384)))throw fail(400,'无效的原始画面尺寸。');
         const ratios={'3:4':3/4,'1:1':1,'9:16':9/16};
         if(typeof body.referenceId!=='string'||!/^[A-Za-z0-9-]{1,64}$/.test(body.referenceId)||!Object.hasOwn(ratios,body.aspectRatio)||
           Math.abs(dimensions.width-dimensions.height*ratios[body.aspectRatio])>1.5)throw fail(400,'参考编号或照片比例不正确。');
@@ -98,7 +100,7 @@ export function createAI({env = process.env, fetchImpl = fetch, now = Date.now, 
         body: JSON.stringify({
           systemInstruction: {parts: [{text: photographyPrompt(guide)}]},
           contents: [{role: 'user', parts: [
-            {text: `本轮场景：${scenes[body.scene]}。实际 JPEG ${dimensions.width}×${dimensions.height}。${guide?'照片比例：'+body.aspectRatio+'。使用实时规划合同 B2；保持拍摄距离和当前主体大小，只调整镜头方向。framing 是主体期望位置，不是人脸位置。':'使用单帧裁切合同 B1，遵守实际 JPEG 坐标。'}原始高分辨率和用户风格偏好未提供，采用保守回退；应用会独立执行画质预算。`},
+            {text: `本轮场景：${scenes[body.scene]}。实际 JPEG ${dimensions.width}×${dimensions.height}。${guide?'照片比例：'+body.aspectRatio+'。使用实时规划合同 B2；自主选择值得拍摄的主体和环境关系，选择一个最佳裁切区域。通过轻转镜头对准后数字放大。场景决定风格、曝光和色彩建议。':'使用单帧裁切合同 B1，遵守实际 JPEG 坐标。'}${guide&&body.source?`本地原始取景 ${body.source.width}×${body.source.height}；${body.zoomMode==='compose'?'构图优先，可在有明确收益时收紧裁切，最低 scale=0.2':'画质优先，尽量保留短边720和100万像素'}。`:'原始高分辨率未提供。'}不强制近距离人像，不把所有照片变成相同风格。`},
             {inlineData: {mimeType: 'image/jpeg', data: body.image}},
           ]}],
           generationConfig: {responseMimeType: 'application/json', responseJsonSchema: guide?guideSchema:schema, maxOutputTokens: 1500, thinkingConfig: {thinkingLevel: 'MINIMAL'}},

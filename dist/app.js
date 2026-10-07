@@ -1,12 +1,12 @@
 import {setupRetouch} from './retouch-ui.js';
 import {setupGuide} from './guide-ui.js';
 import {setupAI} from './ai-ui.js';
-import {filters,cropRect,outputSize,cssFilter,applyPixels} from './photo-utils.js';
+import {filters,cropRect,outputSize,cssFilter,applyLook} from './photo-utils.js';
 const $=id=>document.getElementById(id);
-$('appVersion').textContent='v0.7.0';
+$('appVersion').textContent='v0.8.0';
 const video=$('video');
 let guide=null,retouch=null;
-const state={stream:null,facing:'environment',mirrored:false,ratio:0,timer:0,filter:'original',strength:70,scene:'portrait',grid:true,busy:false,opening:false,request:0,countToken:0,photo:null};
+const state={stream:null,facing:'environment',mirrored:false,ratio:0,timer:0,filter:'original',strength:70,scene:'auto',grid:true,busy:false,opening:false,request:0,countToken:0,photo:null};
 const ratios=[{label:'3:4',value:3/4},{label:'1:1',value:1},{label:'9:16',value:9/16}];
 const tips={portrait:'保持当前距离，AI 会结合人物、背景和留白建议镜头方向，不套用固定人像框。',travel:'保留人物与景色的关系，AI 根据当前画面决定主体位置。',landscape:'AI 根据当前画面的线条、地平线和留白建议构图。'};
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
@@ -38,13 +38,13 @@ async function startCamera(){
 }
 function updateGuide(){
   $('grid').hidden=!state.grid;
-  $('guideText').textContent=tips[state.scene];
+  $('guideText').textContent=tips[state.scene]||'把眼前画面交给 AI：发现值得拍的主体，选一个更好的构图，再推荐适合的色彩。';
   $('sceneTabs').querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.scene===state.scene)));
 }
 function setFilter(id){guide?.cancel();if(!filters.some(f=>f.id===id))throw new Error('不存在的滤镜');state.filter=id;updateFilter();}
 function updateFilter(){video.style.filter=cssFilter(state.filter,state.strength);$('filterName').textContent=filters.find(f=>f.id===state.filter).name;$('strength').disabled=state.filter==='original';$('filterList').querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.filter===state.filter)));$('strengthValue').textContent=state.strength+'%';}
 for(const f of filters){const b=document.createElement('button');b.dataset.filter=f.id;b.setAttribute('aria-label',f.name+'滤镜');b.setAttribute('aria-pressed',String(f.id===state.filter));const swatch=document.createElement('span');swatch.className='filter-swatch';swatch.style.filter=cssFilter(f.id,100);swatch.setAttribute('aria-hidden','true');b.append(swatch,document.createTextNode(f.name));b.onclick=()=>setFilter(f.id);$('filterList').append(b);}
-async function makePhoto(source,width,height,{crop=true,mirrored=false,kind='拍摄',filter={id:state.filter,strength:state.strength},rect:explicitRect=null,valid=()=>true}={}){
+async function makePhoto(source,width,height,{crop=true,mirrored=false,kind='拍摄',filter={id:state.filter,strength:state.strength},adjustments={},rect:explicitRect=null,valid=()=>true}={}){
   if(!['AI 修图','AI 原片'].includes(kind))retouch?.clear();
   const filterId=filter.id,strength=filter.strength;
   const rect=explicitRect||(crop?cropRect(width,height,ratios[state.ratio].value):{sx:0,sy:0,sw:width,sh:height});
@@ -52,7 +52,7 @@ async function makePhoto(source,width,height,{crop=true,mirrored=false,kind='拍
   const context=canvas.getContext('2d',{willReadFrequently:filterId!=='original'});if(!context)throw new Error('无法处理照片，请关闭其他网页后重试。');
   context.fillStyle='#fff';context.fillRect(0,0,canvas.width,canvas.height);if(mirrored){context.translate(canvas.width,0);context.scale(-1,1);}context.drawImage(source,rect.sx,rect.sy,rect.sw,rect.sh,0,0,canvas.width,canvas.height);context.setTransform(1,0,0,1,0,0);
 
-  if(filterId!=='original'&&strength>0){await delay(20);const pixels=context.getImageData(0,0,canvas.width,canvas.height);applyPixels(pixels.data,filterId,strength);context.putImageData(pixels,0,0);}
+  if((filterId!=='original'&&strength>0)||Object.values(adjustments).some(v=>v)){await delay(20);const pixels=context.getImageData(0,0,canvas.width,canvas.height);applyLook(pixels.data,filter,adjustments);context.putImageData(pixels,0,0);}
   const blob=await new Promise((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(new Error('照片导出失败，请重试。')),'image/jpeg',.95));canvas.width=1;canvas.height=1;
   const name=`LucyCam-${new Date().toISOString().replace(/[:.]/g,'-')}.jpg`;
   if(!valid())throw new Error('拍摄已取消。');
@@ -64,6 +64,7 @@ async function makePhoto(source,width,height,{crop=true,mirrored=false,kind='拍
 }
 function showPhoto(fromCapture=false){if(!fromCapture)guide?.cancel();if(!state.photo)return;const p=state.photo;$('photoMeta').textContent=`${p.width} × ${p.height} · ${['AI 修图','AI 原片'].includes(p.kind)?p.kind:p.filter} · ${(p.blob.size/1024/1024).toFixed(1)} MB`;$('saveStatus').textContent='尚未保存到相册，请使用下方按钮或长按照片。';const canShare=!!navigator.share&&!!navigator.canShare?.({files:[p.file]});$('shareButton').hidden=!canShare;$('downloadButton').textContent=canShare?'下载图片':'下载图片 / 保存备用';if(!$('photoDialog').open)$('photoDialog').showModal();video.pause();}
 async function capture(){
+  if(guide?.shoot())return;
   const guided=guide?.active(),config=guide?.currentConfig();guide?.cancel();
   if(state.busy||!state.stream||video.readyState<2)return;
   state.busy=true;updateControls();const token=++state.countToken;
@@ -103,7 +104,7 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden)suspend();}
 video.addEventListener('resize',()=>{if(state.stream)$('resolution').textContent=`${video.videoWidth} × ${video.videoHeight}`;});
 const ai=setupAI({video,getCamera:()=>({active:!!state.stream,ready:!!state.stream&&video.readyState>=2&&!state.busy&&!state.opening,mirrored:state.mirrored,ratio:ratios[state.ratio].value,scene:state.scene}),beforeAnalyze:()=>guide?.cancel(),setBusy:value=>{state.busy=value;updateControls();},makePhoto});
 retouch=setupRetouch({ai,makePhoto,video,setBusy:value=>{state.busy=value;updateControls();},onCancel:()=>guide?.cancel()});
-guide=setupGuide({video,ai,makePhoto,cancelCountdown,retouchPhoto:(frame,options)=>retouch.process(frame,options),getCamera:()=>({ready:!!state.stream&&video.readyState>=2&&!state.busy&&!state.opening,mirrored:state.mirrored,ratio:ratios[state.ratio].value,aspectRatio:ratios[state.ratio].label,scene:state.scene})});
+guide=setupGuide({video,ai,makePhoto,cancelCountdown,getCamera:()=>({ready:!!state.stream&&video.readyState>=2&&!state.busy&&!state.opening,mirrored:state.mirrored,ratio:ratios[state.ratio].value,aspectRatio:ratios[state.ratio].label,scene:state.scene})});
 updateGuide();updateFilter();updateControls();
 // Optional browser agent access exposes settings only; it never captures or shares images.
 const modelContext=document.modelContext;
